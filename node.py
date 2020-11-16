@@ -66,28 +66,25 @@ class Node:
             cov_or_var_sum = self._eval_splits_one_dim(split_dim, eval_dims, cov=corr)
             if corr: 
                 # TODO: Fully vectorise this.
-                r2 = np.array([np.array([cov_to_r(cov_c_n) # Convert cov to R^2...
+                r2 = np.array([np.array([cov_to_r2(cov_c_n) # Convert cov to R^2...
                                for cov_c_n in cov_c]) for cov_c in # ...for each child and each num_samples...
                                cov_or_var_sum / n]) # ...where cov is computed by dividing cov_sum by num_samples.          
-                # Multiply by population**pop_power to incentivise large populations. 
-                # r2_scaled = r2 * n / self.num_samples     
+                # Scaling incentivises large populations. 
                 r2_scaled = r2 * (np.log2(n-1) ** pop_power)
+                # r2_scaled = r2 * n / self.num_samples     
                 if one_sided:           
-                    # Split quality = maximum value of (R^2 * population**pop_power).
+                    # Split quality = maximum value of (R^2 * log2(population-1)**pop_power).
                     right, split_point, d1, d2 = np.unravel_index(np.nanargmax(r2_scaled), r2_scaled.shape)
                     qual_max = r2_scaled[(right, split_point, d1, d2)] - r2_scaled[(1, 0, d1, d2)]
                     extra.append(r2_scaled) # Extra = r2_scaled at all points.
                 else:
-
                     pca = [[np.linalg.eig(cov_c_n) if not np.isnan(cov_c_n).any() else None
                            for cov_c_n in cov_c] for cov_c in 
                            cov_or_var_sum / n]
                     return pca
-
-
             else:    
                 if one_sided: 
-                    raise NotImplementedError
+                    raise NotImplementedError()
                 else:
                     # Split quality = sum of reduction in dimensions-scaled variance sums.
                     gain_per_dim = (cov_or_var_sum[1,0] - cov_or_var_sum.sum(axis=0))

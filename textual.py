@@ -3,7 +3,7 @@ import numpy as np
 
 def rules(tree, pred_dim, sf=3, out_file=None): 
     """
-    xxx
+    Represent tree as a rule set wuth pred_dim as the consequent.
     """
     if type(pred_dim) == str: pred_dim = tree.root.source.dim_names.index(pred_dim)
     d = tree.root.source.dim_names; lines = []
@@ -36,10 +36,10 @@ def rule(node, maximise=True, sf=3):
             if do_mx: terms.append(f"{d[i]} < {round_sf(mx, sf)}")
     return " and ".join(terms)
 
-def counterfactual(): return
+def counterfactual(): NotImplementedError()
 
 def temporal(): 
     """
     Should call counterfactual().
     """
-    return
+    raise NotImplementedError()

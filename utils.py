@@ -21,17 +21,13 @@ def increment_mean_and_cov_sum(n, mean, cov_sum, x, sign):
     cov_sum = cov_sum + (sign * np.outer(d_last, d))
     return mean, cov_sum
 
-def cov_to_r(cov):
+def cov_to_r2(cov):
     """
     Convert a covariance matrix to R matrix, keeping only elements above the diagonal.
     Adapted from https://gist.github.com/wiso/ce2a9919ded228838703c1c7c7dad13b.
     """
     var = np.maximum(np.diag(cov), 0)
-    # if np.all(np.isclose(var, 0, atol=1e-10)): # If all *almost* zero, return zero.
-    #     return np.zeros_like(cov)
     r2 = (cov**2) / np.outer(var, var)
-    # std = np.sqrt(np.maximum(np.diag(cov), 0))
-    # r = cov / np.outer(std, std)
     r2[cov == 0] = 0
     return np.triu(r2, k=1)
 

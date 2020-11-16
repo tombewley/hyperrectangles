@@ -178,8 +178,6 @@ class Tree:
             node.gains['potential'] = node.gains['immediate'] + left['potential'] + right['potential']
             # Compute relative gains by normalising by var_sum at this node.
             here = node.var_sum[self.eval_dims]
-            # NOTE: For std_sum gain.
-            # here = np.sqrt(node.var_sum[self.eval_dims] * node.num_samples)
             here[here == 0] = 1 # Prevents div/0 error.
             node.gains['realised_relative'] = node.gains['realised'] / here
             node.gains['potential_relative'] = node.gains['potential'] / here
@@ -224,11 +222,6 @@ class Tree:
         return {d: sum(w[len(dim_set)] * con # weighted sum of contributions...
                 for dim_set, con in c.items()) # ...from each dim_set...     
                 for d, c in contributions.items()} # ...for each dim.
-
-    """
-    TODO: Prediction / scoring methods.
-    """
-# ===========================
 
     def _get_leaves(self):
         leaves = []

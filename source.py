@@ -95,8 +95,6 @@ class Source:
 
     #     return self.trees[name], qual
 
-# ========================================================
-
     def _preflight_check(self, split_dims, eval_dims, sorted_indices):
         # Allow dim_names to be specified instead of numbers.
         if type(split_dims[0]) == str: split_dims = [self.dim_names.index(s) for s in split_dims]
@@ -104,4 +102,3 @@ class Source:
         # If indices not specified, use all.
         if sorted_indices is None: sorted_indices = self.all_sorted_indices
         return np.array(split_dims), np.array(eval_dims), sorted_indices
-        

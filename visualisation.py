@@ -224,11 +224,11 @@ def show_shap_dependence(tree, node, shap_dims, vis_dim=None, colour_dim=None, s
     ax.scatter(d[:,0], d[:,1], s=2, c=colours)
     return ax
 
-# ===========================
+# ========================================================
 
 def _collect_attributes(nodes, attributes):
     """
-    xxx
+    Collect a set of attributes from each node in the provided list.
     """
     values = []
     for attr in attributes:
@@ -282,7 +282,7 @@ def _ax_spark(ax, lims):
 
 def _get_intersection(node_a, node_b, dims, maximise):
     """
-    Intersection between either the maximal or minimal bounding boxes for two nodes.
+    Find intersection between either the maximal or minimal bounding boxes for two nodes.
     """
     bb_a, bb_b = (node_a.bb_max[dims], node_b.bb_max[dims]) if maximise else (node_a.bb_min[dims], node_b.bb_min[dims])
     l = np.maximum(bb_a[:,0], bb_b[:,0])
