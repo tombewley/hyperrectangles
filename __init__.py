@@ -1,3 +1,3 @@
 from .source import Source
-from .visualisation import *
-from .textual import *
+from .visualise import *
+from .explain import *

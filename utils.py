@@ -68,5 +68,7 @@ def dim_dict_to_list(dim_dict, dim_names):
         dim_list[dim_names.index(dim)] = value
     return dim_list
 
-def round_sf(x, sf):
-    return np.format_float_positional(x, precision=sf, unique=False, fractional=False, trim='k')
+def round_sf(X, sf):
+    def _r(x): return np.format_float_positional(x, precision=sf, unique=False, fractional=False, trim='k')
+    try: return _r(X) # For single value.
+    except: return f"({', '.join(_r(x) for x in X)})" # For iterable.
