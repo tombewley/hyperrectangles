@@ -2,7 +2,6 @@ from .utils import *
 import numpy as np
 import matplotlib as mpl
 import networkx as nx
-from tqdm import tqdm
 
 def show_samples(node, vis_dims, colour_dim=None, alpha=None, spark=False, ax=None):
     """
@@ -18,13 +17,13 @@ def show_samples(node, vis_dims, colour_dim=None, alpha=None, spark=False, ax=No
         if spark: ax = _ax_spark(ax, lims)
         else: _, ax = mpl.pyplot.subplots()#figsize=(8,8))
     # Automatically calculate alpha.
-    if alpha is None: alpha = 1 / len(x)**0.25
+    if alpha is None: alpha = 1 / len(x)**0.5
     if spark:
-        ax.scatter(x[:,0], x[:,1], s=0.5, c='#fe5d02', alpha=alpha) 
+        ax.scatter(x[:,0], x[:,1], s=0.25, c='#fe5d02', alpha=alpha) 
         y = node.mean[vis_dims[1]]
         ax.plot(lims[0], [y,y], c='k')
     else:
-        ax.scatter(x[:,0], x[:,1], s=0.5, c='k', alpha=alpha) 
+        ax.scatter(x[:,0], x[:,1], s=0.25, c='k', alpha=alpha) 
         ax.set_xlabel(node.source.dim_names[vis_dims[0]])
         ax.set_ylabel(node.source.dim_names[vis_dims[1]])
         
@@ -188,32 +187,45 @@ def show_transition_graph(tree, layout_dims=None, highlight_path=None, alpha=Fal
 # ===========================
 # SHAP-based visualisations.
 
-def show_shap_dependence(tree, node, shap_dims, vis_dim=None, colour_dim=None, subsample=None):
+def show_shap_dependence(tree, node, wrt_dim, shap_dim, vis_dim=None, deinteraction_dim=None, colour_dim=None, subsample=None):
     """
-    Using all the samples at a node, build a SHAP dependence plot for shap_dims[0] w.r.t. shap_dims[1].
-    Scatter points along shap_dims[1] *or* a specified vis_dim, and optionally colour points by colour_dim.
+    For all the samples at a node (or a subsample), scatter the SHAP values for shap_dim w.r.t. wrt_dim.
+    Distribute points along shap_dim *or* a specified vis_dim, and optionally colour points by colour_dim.
     TODO: Remove interaction effects with "deinteraction_dim"
     """
     # Allow dim_names to be specified instead of numbers.
-    if vis_dim is None: vis_dim = shap_dims[1]
+    if vis_dim is None: vis_dim = shap_dim
+    if type(shap_dim) == str: shap_dim = tree.root.source.dim_names.index(shap_dim)
+    if type(wrt_dim) == str: wrt_dim = tree.root.source.dim_names.index(wrt_dim)
     if type(vis_dim) == str: vis_dim = tree.root.source.dim_names.index(vis_dim)
-    if type(shap_dims[0]) == str: shap_dims = [tree.root.source.dim_names.index(s) for s in shap_dims]
+    if type(deinteraction_dim) == str: deinteraction_dim = tree.root.source.dim_names.index(deinteraction_dim)
     if type(colour_dim) == str: colour_dim = tree.root.source.dim_names.index(colour_dim)
-    d, c = [], []
-    for idx in tqdm(subsample_sorted_indices(node.sorted_indices, subsample)[:,0]):
-        # Compute SHAP value for each sample.
-        x = node.source.data[idx]
-        s = tree.shap(x, shap_dims[0])
-        d.append([x[vis_dim], s[shap_dims[1]]])
-        if colour_dim is not None: c.append(x[colour_dim])
-    d, c = np.array(d), np.array(c) 
+    # Compute SHAP values for all samples.
+    X = node.source.data[subsample_sorted_indices(node.sorted_indices, subsample)[:,0]]
+    if deinteraction_dim is None: 
+        shaps = tree.shap(X, wrt_dim=wrt_dim)
+        d = np.array(list(zip(X[:,vis_dim], 
+                          [s[shap_dim] for s in shaps])))
+    else: 
+        # Remove interaction effects with deinteraction_dim.
+        shaps = tree.shap_with_ignores(X, wrt_dim=wrt_dim, ignore_dims=[deinteraction_dim])
+        d = np.array(list(zip(X[:,vis_dim], 
+                          [s[shap_dim] - (i[shap_dim] / 2) for s,i in # <<< NOTE: DIVIDE BY 2?
+                          zip(shaps[None], shaps[deinteraction_dim])])))
+
+
+
+
+
+    if colour_dim is not None: c = X[:,colour_dim]
     # Set up figure.
-    _, ax = mpl.pyplot.subplots()#figsize=(8,4))
+    _, ax = mpl.pyplot.subplots(figsize=(12/5,12/5))
     ax.set_xlabel(tree.root.source.dim_names[vis_dim])    
-    ax.set_ylabel(f'SHAP for {tree.root.source.dim_names[shap_dims[0]]} w.r.t. {tree.root.source.dim_names[shap_dims[1]]}')
+    ax.set_ylabel(f'SHAP for {tree.root.source.dim_names[shap_dim]} w.r.t. {tree.root.source.dim_names[wrt_dim]}')
     if colour_dim is None: colours = 'k'
     else:
-        cmap = (mpl.cm.copper,'copper')
+        # cmap = (mpl.cm.copper,'copper')
+        cmap = (mpl.cm.coolwarm_r, 'coolwarm_r') 
         mn, mx = np.min(c), np.max(c)
         if mx == mn: fill_colours = [cmap[0](.5) for _ in c]
         else: colours = [cmap[0](v) for v in (c - mn) / (mx - mn)]
@@ -221,7 +233,7 @@ def show_shap_dependence(tree, node, shap_dims, vis_dim=None, colour_dim=None, s
         norm = mpl.colors.Normalize(vmin=mn, vmax=mx)
         cbar = ax.figure.colorbar(mpl.cm.ScalarMappable(norm=norm, cmap=cmap[1]), ax=ax)
         cbar.set_label(tree.root.source.dim_names[colour_dim], rotation=270)
-    ax.scatter(d[:,0], d[:,1], s=2, c=colours)
+    ax.scatter(d[:,0], d[:,1], s=0.5, alpha=0.1, c=colours)
     return ax
 
 # ========================================================
@@ -256,7 +268,7 @@ def _collect_attributes(nodes, attributes):
     return values
 
 def _ax_setup(ax, tree, vis_dims, attribute=None, diff=False, tree_b=None, derivs=False, slice_dict={}, interval_dict={}):
-    if ax is None: _, ax = mpl.pyplot.subplots()#figsize=(9,8))
+    if ax is None: _, ax = mpl.pyplot.subplots(figsize=(3,12/5))
     vis_dim_names = [tree.root.source.dim_names[v] for v in vis_dims]
     ax.set_xlabel(vis_dim_names[0]); ax.set_ylabel(vis_dim_names[1])
     title = tree.name
