@@ -12,7 +12,7 @@ def rules(tree, pred_dims, sf=3, out_name=None):
         i = "    " * depth # Indent.     
         if node is None: lines.append(f"{i}return None")       
         elif node.split_dim is not None:
-            lines.append(f"{i}if {d[node.split_dim]} < {round_sf(node.split_value, sf)}:")
+            lines.append(f"{i}if {d[node.split_dim]} < {round_sf(node.split_threshold, sf)}:")
             _recurse(node.left, depth+1)
             lines.append(f"{i}else:")
             _recurse(node.right, depth+1)
@@ -23,7 +23,7 @@ def rules(tree, pred_dims, sf=3, out_name=None):
             for l in lines: f.write(l+"\n")
     return "\n".join(lines)
 
-def diagram(tree, pred_dims, sf=3, verbose=False, colour="#ffffff", out_name=None):
+def diagram(tree, pred_dims, sf=3, verbose=False, colour="#ffffff", out_name=None, png=False):
     """
     Represent tree as a pydot diagram with pred_dims and the consequent.
     """
@@ -35,10 +35,10 @@ def diagram(tree, pred_dims, sf=3, verbose=False, colour="#ffffff", out_name=Non
             ns = node.num_samples  
             mean = round_sf(node.mean[pred_dims], sf)
             std = round_sf(np.sqrt(np.diag(node.cov)[pred_dims]), sf) 
-            imp = f"{np.dot(node.var_sum[pred_dims], node.source.scale_factors[pred_dims]):.2E}"
+            imp = f"{np.dot(node.var_sum[pred_dims], node.source.global_var_scale[pred_dims]):.2E}"
             if node.split_dim is not None:
                 # Decision node.
-                split = f'{d[node.split_dim]}={round_sf(node.split_value, sf)}'
+                split = f'{d[node.split_dim]}={round_sf(node.split_threshold, sf)}'
                 if verbose: graph_spec += f'{n} [label="mean: {mean}\nstd: {std}\nnum_samples: {ns}\nimpurity: {imp}\n-----\nsplit: {split}", style=filled, fillcolor="{colour}", fontname = "ETBembo"];'
                 else: graph_spec += f'{n} [label="{split}", style=filled, fillcolor="{colour}", fontname = "ETBembo"];'
             else: 
@@ -56,8 +56,9 @@ def diagram(tree, pred_dims, sf=3, verbose=False, colour="#ffffff", out_name=Non
     graph_spec, _ = _recurse(tree.root, graph_spec)
     # Create and save pydot graph.    
     (graph,) = pydot.graph_from_dot_data(graph_spec+'}') 
-    graph.write_svg(f"{out_name if out_name is not None else tree.name}.svg") 
-    # graph.write_png(f"{out_name if out_name is not None else tree.name}.png") 
+    if png: graph.write_png(f"{out_name if out_name is not None else tree.name}.png") 
+    else:   graph.write_svg(f"{out_name if out_name is not None else tree.name}.svg") 
+    
 
 def rule(node, maximise=True, sf=3): 
     """

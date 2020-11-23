@@ -67,7 +67,7 @@ class Tree:
         # Subfunction for calculating costs is similar to the _recurse() function inside backprop_gains(),
         # except it takes the weighted sum of var_sum rather than per-feature, and realised only.
         def _recurse(node):
-            var_sum = np.dot(node.var_sum, self.root.source.scale_factors)
+            var_sum = np.dot(node.var_sum, self.root.source.global_var_scale)
             if node.split_dim is None: return [var_sum], 1
             (left, num_left), (right, num_right) = _recurse(node.left), _recurse(node.right)
             var_sum_leaves, num_leaves = left + right, num_left + num_right
@@ -255,7 +255,7 @@ class Tree:
         def _recurse(node):
             if node.split_dim is None: return node
             else:
-                if x[node.split_dim] < node.split_value: 
+                if x[node.split_dim] < node.split_threshold: 
                     return _recurse(node.left)
                 else: return _recurse(node.right)
         return _recurse(self.root)

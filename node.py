@@ -25,7 +25,7 @@ class Node:
             self.bb_max[d,lu] = v # Then update one boundary.
         else:
             self.bb_max = np.array([[-np.inf, np.inf] for _ in range(num_dims)]) # If no parent, bb_max is infinite.
-        self.split_dim, self.left, self.right, self.gains = None, None, None, {} # To be replaced if and when the node is split.
+        self.split_dim, self.split_threshold, self.left, self.right, self.gains = None, None, None, None, {} # To be replaced if and when the node is split.
     
     def _do_greedy_split(self, split_dims, eval_dims, corr=False, one_sided=False, pop_power=.5):
         """
@@ -36,18 +36,18 @@ class Node:
         split_dim, split_point, qual, index, (left, right) = sorted(splits, key=lambda x: x[2], reverse=True)[0]        
         if qual > 0:
             self.split_dim = split_dim
-            # Pick actual numerical value to split at: midpoint of samples either side.
-            self.split_value = (self.source.data[left[-1,split_dim],split_dim] + self.source.data[right[0,split_dim],split_dim]) / 2
+            # Pick actual numerical threshold to split at: midpoint of samples either side.
+            self.split_threshold = (self.source.data[left[-1,split_dim],split_dim] + self.source.data[right[0,split_dim],split_dim]) / 2
             if one_sided: # Only create the child for which the split is made.
                 self.eval_child_and_dims = index
                 do_right = bool(self.eval_child_and_dims[0])
-                print(f'Split @ {self.split_dim}={self.split_value} for child {self.eval_child_and_dims[0]} cov({self.source.dim_names[eval_dims[self.eval_child_and_dims[1]]]},{self.source.dim_names[eval_dims[self.eval_child_and_dims[2]]]})')           
+                print(f'Split @ {self.split_dim}={self.split_threshold} for child {self.eval_child_and_dims[0]} cov({self.source.dim_names[eval_dims[self.eval_child_and_dims[1]]]},{self.source.dim_names[eval_dims[self.eval_child_and_dims[2]]]})')           
             else:
                 self.gains['immediate'] = extra
             if (not one_sided) or (not do_right):
-                self.left = Node(self.source, left, (self.bb_max.copy(), split_dim, 1, self.split_value))
+                self.left = Node(self.source, left, (self.bb_max.copy(), split_dim, 1, self.split_threshold))
             if (not one_sided) or do_right:
-                self.right = Node(self.source, right, (self.bb_max.copy(), split_dim, 0, self.split_value))
+                self.right = Node(self.source, right, (self.bb_max.copy(), split_dim, 0, self.split_threshold))
             return True, extra
         return False, extra
 
@@ -88,7 +88,7 @@ class Node:
                 else:
                     # Split quality = sum of reduction in dimensions-scaled variance sums.
                     gain_per_dim = (cov_or_var_sum[1,0] - cov_or_var_sum.sum(axis=0))
-                    qual = (gain_per_dim * self.source.scale_factors[eval_dims]).sum(axis=1)
+                    qual = (gain_per_dim * self.source.global_var_scale[eval_dims]).sum(axis=1)
                     split_point = np.argmax(qual) # Greedy split is the one with the highest quality.                    
                     qual_max = qual[split_point]
                     extra.append(gain_per_dim[split_point]) # Extra = gain_per_dim at split point.

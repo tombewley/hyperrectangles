@@ -23,7 +23,7 @@ def increment_mean_and_cov_sum(n, mean, cov_sum, x, sign):
 
 def cov_to_r2(cov):
     """
-    Convert a covariance matrix to R matrix, keeping only elements above the diagonal.
+    Convert a covariance matrix to R^2 matrix, keeping only elements above the diagonal.
     Adapted from https://gist.github.com/wiso/ce2a9919ded228838703c1c7c7dad13b.
     """
     var = np.maximum(np.diag(cov), 0)
@@ -31,14 +31,14 @@ def cov_to_r2(cov):
     r2[cov == 0] = 0
     return np.triu(r2, k=1)
 
-def split_sorted_indices(sorted_indices, split_dim, split_point):
+def split_sorted_indices(sorted_indices, split_dim, split_index):
     """
     Split a sorted_indices array at a point along one of the dimensions,
     preserving the order along all others.
     """
     dims = range(sorted_indices.shape[1])
     left, right = [[] for _ in dims], [[] for _ in dims]
-    left[split_dim], right[split_dim] = np.split(sorted_indices[:,split_dim], [split_point])
+    left[split_dim], right[split_dim] = np.split(sorted_indices[:,split_dim], [split_index])
     for other_dim in dims:
         put_left = np.in1d(sorted_indices[:,other_dim], left[split_dim])
         left[other_dim] = sorted_indices[put_left, other_dim]

@@ -16,7 +16,7 @@ class Source:
         # Scale factors for variance are reciprocals of global variance.
         var = np.var(data, axis=0)
         var[var==0] = 1
-        self.scale_factors = max(var) / var
+        self.global_var_scale = max(var) / var
         # Empty dictionary for storing trees.
         self.trees = {}
 
@@ -33,13 +33,13 @@ class Source:
                 if lims is None: continue # If nothing specified for this lim.
                 for lu, lim in enumerate(lims):
                     data = self.data[sorted_indices[:,split_dim], split_dim] # Must reselect each time.
-                    split_point = bisect.bisect(data, lim)
-                    left, right = split_sorted_indices(sorted_indices, split_dim, split_point)
+                    split_index = bisect.bisect(data, lim)
+                    left, right = split_sorted_indices(sorted_indices, split_dim, split_index)
                     if lu == 0: sorted_indices = right
                     else: sorted_indices = left
         return subsample_sorted_indices(sorted_indices, subsample)
 
-    def depth_first_tree(self, name, split_dims, eval_dims, sorted_indices=None, max_depth=np.inf, 
+    def tree_depth_first(self, name, split_dims, eval_dims, sorted_indices=None, max_depth=np.inf, 
                          corr=False, one_sided=False, pop_power=.5):
         """
         Grow a tree depth-first to max_depth using samples specified by sorted_indices. 
@@ -56,14 +56,14 @@ class Source:
         self.trees[name] = Tree(name, root, split_dims, eval_dims)
         return self.trees[name]
 
-    def best_first_tree(self, name, split_dims, eval_dims, sorted_indices=None, max_num_leaves=np.inf): 
+    def tree_best_first(self, name, split_dims, eval_dims, sorted_indices=None, max_num_leaves=np.inf): 
         """
         Grow a tree best-first to max_num_leaves using samples specified by sorted_indices. 
         """
         split_dims, eval_dims, sorted_indices = self._preflight_check(split_dims, eval_dims, sorted_indices)
         with tqdm(total=max_num_leaves) as pbar:
             root = Node(self, sorted_indices) 
-            priority = np.dot(root.var_sum[eval_dims], self.scale_factors[eval_dims])
+            priority = np.dot(root.var_sum[eval_dims], self.global_var_scale[eval_dims])
             queue = [(root, priority)]
             pbar.update(1); num_leaves = 1
             while num_leaves < max_num_leaves and len(queue) > 0:
@@ -75,9 +75,51 @@ class Source:
                     pbar.update(1); num_leaves += 1
                     # If split made, add the two new leaves to the queue.
                     queue += [(node.left,
-                               np.dot(node.left.var_sum[eval_dims], self.scale_factors[eval_dims])),
+                               np.dot(node.left.var_sum[eval_dims], self.global_var_scale[eval_dims])),
                               (node.right,
-                               np.dot(node.right.var_sum[eval_dims], self.scale_factors[eval_dims]))]
+                               np.dot(node.right.var_sum[eval_dims], self.global_var_scale[eval_dims]))]
+        self.trees[name] = Tree(name, root, split_dims, eval_dims)
+        return self.trees[name]
+
+    def tree_from_dict(self, name, d): 
+        """
+        Node attributes:
+            Node(source, sorted_indices, parent_split_info) handles:
+                source
+                sorted_indices
+                num_samples
+                mean
+                cov
+                cov_sum
+                var_sum
+                bb_min
+                bb_max
+            Then manually add:
+                split_dim = df['split_dim']
+                split_index
+                left = df['left']
+                right = df['right']
+                gains
+        Tree attributes:
+            Tree(name, root, split_dims, eval_dims) where:
+                split_dims = unique values of df['split_dim']
+                eval_dims = ?
+        """
+        def _recurse(node, n): 
+            if n in d:
+                node.split_dim = d[n]['split_dim']
+                node.split_threshold = d[n]['split_threshold']
+                # Most complicated aspect here is splitting the node's data at the threshold.
+                data = self.data[node.sorted_indices[:,node.split_dim], node.split_dim]
+                split_index = bisect.bisect(data, node.split_threshold)
+                left, right = split_sorted_indices(node.sorted_indices, node.split_dim, split_index)
+                node.left = Node(self, left, (node.bb_max.copy(), node.split_dim, 1, node.split_threshold))
+                node.right = Node(self, right, (node.bb_max.copy(), node.split_dim, 0, node.split_threshold))
+                _recurse(node.left, d[n]['left'])
+                _recurse(node.right, d[n]['right'])
+        root = Node(self, self.all_sorted_indices)
+        _recurse(root, 1) # NOTE: Root node must have key of 1 in dict.
+        split_dims, eval_dims = list(set(v['split_dim'] for v in d.values())), [] # NOTE: No eval dims?
         self.trees[name] = Tree(name, root, split_dims, eval_dims)
         return self.trees[name]
 
