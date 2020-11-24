@@ -16,7 +16,7 @@ class Source:
         # Scale factors for variance are reciprocals of global variance.
         var = np.var(data, axis=0)
         var[var==0] = 1
-        self.global_var_scale = max(var) / var
+        self.global_var_scale = 1 / var
         # Empty dictionary for storing trees.
         self.trees = {}
 

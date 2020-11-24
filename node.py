@@ -1,5 +1,6 @@
 from .utils import *
 import numpy as np
+from sklearn.decomposition import PCA
 
 class Node:
     """
@@ -10,15 +11,15 @@ class Node:
         self.source = source # To refer back to the source class.
         self.sorted_indices = sorted_indices
         self.num_samples, num_dims = sorted_indices.shape
-        node_data = self.source.data[sorted_indices[:,0]] # Won't actually store this; order doesn't matter.
-        self.mean = np.mean(node_data, axis=0)
+        X = self.source.data[sorted_indices[:,0]] # Won't actually store this; order doesn't matter.
+        self.mean = np.mean(X, axis=0)
         if self.num_samples > 1: 
-              self.cov = np.cov(node_data, rowvar=False, ddof=0) # ddof=0 overrides bias correction.
+              self.cov = np.cov(X, rowvar=False, ddof=0) # ddof=0 overrides bias correction.
         else: self.cov = np.zeros((num_dims, num_dims))
         self.cov_sum = self.cov * self.num_samples
         self.var_sum = np.diag(self.cov_sum)
         # Minimal bounding box.
-        self.bb_min = np.array([np.min(node_data, axis=0), np.max(node_data, axis=0)]).T
+        self.bb_min = np.array([np.min(X, axis=0), np.max(X, axis=0)]).T
         # If this node has a parent, use the provided split information to create maximal bounding box.
         if parent_split_info is not None:
             self.bb_max, d, lu, v = parent_split_info # Start by copying parent bb_max.
@@ -26,6 +27,43 @@ class Node:
         else:
             self.bb_max = np.array([[-np.inf, np.inf] for _ in range(num_dims)]) # If no parent, bb_max is infinite.
         self.split_dim, self.split_threshold, self.left, self.right, self.gains = None, None, None, None, {} # To be replaced if and when the node is split.
+    
+    def attr(self, attr):
+        """
+        Compute a statistical attribute for this node.
+        """
+        # Allow dim_name to be specified instead of number.
+        if type(attr[1]) == str: dim = self.source.dim_names.index(attr[1])
+        if len(attr) == 3 and type(attr[2]) == str: dim2 = self.source.dim_names.index(attr[2])
+        # Mean, standard deviation, or sqrt of covarance (std_c).
+        if attr[0] == 'mean': return self.mean[dim]
+        elif attr[0] == 'std': return np.sqrt(self.cov[dim,dim])
+        elif attr[0] == 'std_c': return np.sqrt(self.cov[dim,dim2])
+        elif attr[0] in ('median','iqr','q1q3'):
+            # Median, interquartile range, or lower and upper quartiles.
+            q1, q2, q3 = np.quantile(self.source.data[self.sorted_indices[:,dim],dim], (.25,.5,.75))
+            if attr[0] == 'median': return q2
+            elif attr[0] == 'iqr': return q3-q1
+            elif attr[0] == 'q1q3': return (q1,q3)
+    
+    def pca(self, dims=None, n_components=None, whiten_by='local'):
+        """
+        Perform principal component analysis on the data at this node, whitening beforehand
+        to ensure that large dimensions do not dominate.
+        """
+        X = self.source.data[self.sorted_indices[:,0][:,None],dims]
+        if X.shape[0] == 1: return None, None
+        if dims is None: dims = np.arange(len(self.source.dim_names))
+        # Allow dim_names to be specified instead of numbers.
+        if type(dims[0]) == str: dims = [self.source.dim_names.index(d) for d in dims]
+        # Whiten data, using either local or global standard deviation.
+        mean = X.mean(axis=0)
+        std = X.std(axis=0) if whiten_by == 'local' else (1 / (self.source.global_var_scale[dims] ** 0.5))   
+        X = (X - mean) / std
+        # Perform PCA on whitened data.
+        pca = PCA(n_components=n_components); pca.fit(X)
+        # Return components scaled back by standard deviation, and explained variance ratio.
+        return (pca.components_ * std), pca.explained_variance_ratio_
     
     def _do_greedy_split(self, split_dims, eval_dims, corr=False, one_sided=False, pop_power=.5):
         """

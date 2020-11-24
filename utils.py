@@ -61,7 +61,7 @@ def subsample_sorted_indices(sorted_indices, size):
 def dim_dict_to_list(dim_dict, dim_names):
     """
     Convert a convenient dictionary representation of per-dimension information
-    to a list with None values as placeholders, which can be used in calculations.
+    to a list with Nones as placeholders, which can be used in calculations.
     """
     dim_list = [None for _ in dim_names]
     for dim, value in dim_dict.items():
@@ -72,3 +72,32 @@ def round_sf(X, sf):
     def _r(x): return np.format_float_positional(x, precision=sf, unique=False, fractional=False, trim='k')
     try: return _r(X) # For single value.
     except: return f"({', '.join(_r(x) for x in X)})" # For iterable.
+
+def gather_attributes(nodes, attributes):
+    """
+    Gather a set of attributes from each node in the provided list.
+    """
+    results = []
+    for attr in attributes:
+        if attr is None: results.append(None)
+        else:
+            # Allow dim_name to be specified instead of number.
+            if type(attr[1]) == str: dim = nodes[0].source.dim_names.index(attr[1])
+            if len(attr) == 3 and type(attr[2]) == str: dim2 = nodes[0].source.dim_names.index(attr[2])
+            results.append(np.array([node.attr(attr) for node in nodes]))
+    return results
+
+def intersect_nodes(node_a, node_b, dims, maximise):
+    """
+    Find intersection between either the maximal or minimal bounding boxes for two nodes.
+    """
+    bb_a, bb_b = (node_a.bb_max[dims], node_b.bb_max[dims]) if maximise else (node_a.bb_min[dims], node_b.bb_min[dims])
+    l = np.maximum(bb_a[:,0], bb_b[:,0])
+    u = np.minimum(bb_a[:,1], bb_b[:,1]) 
+    if np.any(u-l <= 0): return None # Return None if no overlap.
+    return np.array([l, u]).T
+
+def bb_clip(bb, clip):
+    bb[:,0] = np.maximum(bb[:,0], clip[:,0])
+    bb[:,1] = np.minimum(bb[:,1], clip[:,1])
+    return bb
