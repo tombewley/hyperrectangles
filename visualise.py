@@ -42,7 +42,7 @@ def show_lines(tree, attributes, max_depth=np.inf, maximise=False, show_spread=F
                        (('q1q3',a[1]) if a[0]=='median' else None)) 
                        for a in attributes]
     # Collect the list of nodes to show.
-    nodes_to_show = tree.filter(max_depth=np.inf)
+    nodes_to_show = tree.propagate(max_depth=np.inf)
     values = _collect_attributes(nodes_to_show, attributes)
     # Create new axes if needed.
     if ax is None: _, ax = mpl.pyplot.subplots()#figsize=(9,8))
@@ -68,7 +68,7 @@ def show_lines(tree, attributes, max_depth=np.inf, maximise=False, show_spread=F
     ax.legend()
     return ax
 
-def show_rectangles(tree, vis_dims=None, attribute=None, slice_dict={}, interval_dict={},
+def show_rectangles(tree, vis_dims=None, attribute=None, slice_dict={},
                     max_depth=np.inf, maximise=False, cmap_lims=None, fill_colour='w', edge_colour=None, ax=None):
     """
     Given a tree with two split_dims, display one attribute using a coloured rectangle for each node.
@@ -81,9 +81,9 @@ def show_rectangles(tree, vis_dims=None, attribute=None, slice_dict={}, interval
         # Allow dim_names to be specified instead of numbers.
         if type(vis_dims[0]) == str: vis_dims = [tree.root.source.dim_names.index(v) for v in vis_dims] 
     # Set up axes.
-    ax = _ax_setup(ax, tree, vis_dims, attribute=attribute, slice_dict=slice_dict, interval_dict=interval_dict)
+    ax = _ax_setup(ax, tree, vis_dims, attribute=attribute, slice_dict=slice_dict)
     # Collect the list of nodes to show.
-    nodes_to_show = tree.filter(slice_dict=slice_dict, maximise_to_slice=maximise, interval_dict=interval_dict, max_depth=max_depth)
+    nodes_to_show = tree.propagate(x_dict=slice_dict, maximise=maximise, max_depth=max_depth)
     values = _collect_attributes(nodes_to_show, [attribute])
     # Extract bounding boxes.
     bbs = [(_bb_clip(node.bb_max[vis_dims], tree.root.bb_min[vis_dims]) if maximise 
@@ -106,9 +106,9 @@ def show_difference_rectangles(tree_a, tree_b, attribute, max_depth=np.inf, maxi
     # Set up axes.
     ax = _ax_setup(ax, tree_a, tree_a.split_dims, attribute=attribute, diff=True, tree_b=tree_b)    
     # Collect the lists of nodes to show.
-    nodes_a = tree_a.filter(max_depth=max_depth)
+    nodes_a = tree_a.propagate(max_depth=max_depth)
     values_a = _collect_attributes(nodes_a, [attribute])
-    nodes_b = tree_b.filter(max_depth=max_depth)
+    nodes_b = tree_b.propagate(max_depth=max_depth)
     values_b = _collect_attributes(nodes_b, [attribute])
     # Compute the pairwise intersections between nodes.
     intersections = []; diffs = []
@@ -132,7 +132,7 @@ def show_derivatives(tree, max_depth=np.inf, scale=1, pivot='tail', ax=None):
     ax = _ax_setup(ax, tree, tree.split_dims, derivs=True)    
     # Collect the mean locations and derivative values.
     attributes = [('mean',s) for s in vis_dim_names] + [('mean',f'd_{s}') for s in vis_dim_names]
-    values = _collect_attributes(tree.filter(max_depth=max_depth), attributes)
+    values = _collect_attributes(tree.propagate(max_depth=max_depth), attributes)
     # Create arrows centred at means.    
     mpl.pyplot.quiver(values[0], values[1], values[2], values[3], 
                       pivot=pivot, angles='xy', scale_units='xy', units='inches', 
@@ -267,7 +267,7 @@ def _collect_attributes(nodes, attributes):
                 values.append(v)
     return values
 
-def _ax_setup(ax, tree, vis_dims, attribute=None, diff=False, tree_b=None, derivs=False, slice_dict={}, interval_dict={}):
+def _ax_setup(ax, tree, vis_dims, attribute=None, diff=False, tree_b=None, derivs=False, slice_dict={}):
     if ax is None: _, ax = mpl.pyplot.subplots(figsize=(3,12/5))
     vis_dim_names = [tree.root.source.dim_names[v] for v in vis_dims]
     ax.set_xlabel(vis_dim_names[0]); ax.set_ylabel(vis_dim_names[1])
@@ -276,7 +276,6 @@ def _ax_setup(ax, tree, vis_dims, attribute=None, diff=False, tree_b=None, deriv
     elif attribute: title += f'\n{attribute[0]} of {attribute[1]}'
     elif derivs: title += '\nTime derivatives'
     if slice_dict != {}: title += '\nSlice at '+', '.join([f'{d} = {v}' for d, v in slice_dict.items()])
-    if interval_dict != {}: title += '\nFilter at '+', '.join([f'{d} $\in$ {v}' for d, v in interval_dict.items()])
     ax.set_title(title)
     return ax
 

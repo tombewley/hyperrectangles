@@ -15,7 +15,7 @@ class Tree:
         transition_matrix
         transition_graph
     And methods that only make sense at the whole-tree level:
-        filter()
+        propagate()
         prune_MCCP()
         compute_transition_matrix()
         compute_transition_graph()
@@ -42,7 +42,7 @@ class Tree:
         p = []
         # Get prediction for each sample.
         for x in X:
-            leaf = self._propagate(x)
+            leaf = self.propagate(x)[0] # Uniquely identifies leaf.
             p.append(leaf.mean[dims])
         return np.array(p)
 
@@ -80,32 +80,50 @@ class Tree:
         node.split_dim, node.left, node.right, node.gains = None, None, None, {}
         self.leaves = self._get_leaves() # Update the list of leaves.
 
-    def filter(self, slice_list=[], slice_dict={}, maximise_to_slice=True, interval_list=[], interval_dict={}, max_depth=np.inf):
+    def propagate(self, x=[], x_dict={}, contain=False, maximise=True, max_depth=np.inf):
         """
-        Filter the tree's nodes (up to a maximum depth) by either slice or interval methods, or both.
+        Propagate an input through the tree. Each element can be None (ignore),
+        a scalar (treat as in prediction), or a (min, max) interval (either contain or overlap).
+        Returns a list of leaves. This is effectively a generalisation of prediction.
         """
-        # Convert dictionary representations to lists.
-        if slice_list == [] and slice_dict != {}: slice_list = dim_dict_to_list(slice_dict, self.root.source.dim_names)
-        if interval_dict != {}: interval_list = dim_dict_to_list(interval_dict, self.root.source.dim_names)
-        nodes = []
+        # Convert dictionary representation to list.
+        if x == []: x = dim_dict_to_list(x_dict, self.root.source.dim_names)
         def _recurse(node, depth=0):
-            if node is None: return
-            if depth < max_depth and node.split_dim is not None: 
-                _recurse(node.left, depth+1); _recurse(node.right, depth+1)
+            if node.split_dim is None or depth >= max_depth: 
+                if not maximise: 
+                    # If not maximise, need to check whether we fall within bb_min.
+                    for xd, lims in zip(x, node.bb_min):
+                        try:
+                            if xd is None or np.isnan(xd): continue
+                            # For scalar.
+                            if not(xd >= lims[0] and xd < lims[1]): return [] 
+                        except:
+                            # For (min, max) interval.
+                            compare = [[i >= l for i in xd] for l in lims]
+                            if (not(compare[0][0]) or compare[1][1]) if contain else (not(compare[0][1]) or compare[1][0]):
+                                return []
+                return [node]
             else:
-                include = True
-                if slice_list != []:
-                    # Slice filtering: minimal/maximal bounding box must intersect an affine subspace. 
-                    bb = node.bb_max if maximise_to_slice else node.bb_min
-                    if any(bb[:,0] > [np.inf if s == None else s for s in slice_list]) or \
-                       any(bb[:,1] < [-np.inf if s == None else s for s in slice_list]): include = False
-                if include and interval_list != []:
-                    # Interval filtering: mean must fall within an interval along each dimension.
-                    if any(node.mean < [-np.inf if i == None else i[0] for i in interval_list]) or \
-                       any(node.mean > [np.inf if i == None else i[1] for i in interval_list]): include = False
-                if include: nodes.append(node)
-        _recurse(self.root)
-        return nodes
+                xd, t = x[node.split_dim], node.split_threshold
+                try:
+                    if xd is None or np.isnan(xd):
+                        # If this dim not specified, continue down both left and right.
+                        return _recurse(node.left, depth+1) + _recurse(node.right, depth+1)
+                    # If this dim has a scalar, compare to the threshold.
+                    if xd >= t: 
+                        return _recurse(node.right, depth+1)
+                    else: return _recurse(node.left, depth+1)
+                except:
+                    # If this dim has (min, max) interval, compare each to the threshold.
+                    compare = [i >= t for i in xd]
+                    if (not(compare[1]) if contain else not(compare[0])):
+                        left = _recurse(node.left, depth+1)
+                    else: left = []
+                    if (compare[0] if contain else compare[1]):
+                        right = _recurse(node.right, depth+1)
+                    else: right = []
+                    return left + right
+        return _recurse(self.root)
 
     def compute_transition_matrix(self):
         """
@@ -118,7 +136,7 @@ class Tree:
         # Iterate through the source data in temporal order.
         leaf_idx_last = n; self.transition_matrix[n, n+1] = -1 # First initial sample.
         for x in self.root.source.data:
-            leaf_idx = self.leaves.index(self._propagate(x))
+            leaf_idx = self.leaves.index(self.propagate(x)[0])
             if x[time_idx] == 0: # i.e. start of an episode.
                 self.transition_matrix[n, leaf_idx] += 1 # Initial.
                 self.transition_matrix[leaf_idx_last, n+1] += 1 # Previous terminal.
@@ -212,8 +230,8 @@ class Tree:
             # For each split_dim, find the set of leaves compatible with the sample's value along this dim.
             compatible_leaves = {}
             for d in shap_dims:
-                slice_list = nones.copy(); slice_list[d] = x[d]
-                compatible_leaves[d] = set(self.filter(slice_list=slice_list, maximise_to_slice=maximise))
+                x_s = nones.copy(); x_s[d] = x[d]
+                compatible_leaves[d] = set(self.propagate(x=x_s, maximise=maximise))
             # Iterate through powerset of shap_dims (from https://stackoverflow.com/a/1482316).
             marginals, contributions = {}, {d:{} for d in shap_dims}
             for dim_set in chain.from_iterable(combinations(shap_dims, r) for r in range(num_shap_dims+1)):
@@ -250,12 +268,3 @@ class Tree:
             else: _recurse(node.left); _recurse(node.right)
         _recurse(self.root)
         return leaves
-
-    def _propagate(self, x):
-        def _recurse(node):
-            if node.split_dim is None: return node
-            else:
-                if x[node.split_dim] < node.split_threshold: 
-                    return _recurse(node.left)
-                else: return _recurse(node.right)
-        return _recurse(self.root)

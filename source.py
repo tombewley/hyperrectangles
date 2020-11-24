@@ -83,27 +83,7 @@ class Source:
 
     def tree_from_dict(self, name, d): 
         """
-        Node attributes:
-            Node(source, sorted_indices, parent_split_info) handles:
-                source
-                sorted_indices
-                num_samples
-                mean
-                cov
-                cov_sum
-                var_sum
-                bb_min
-                bb_max
-            Then manually add:
-                split_dim = df['split_dim']
-                split_index
-                left = df['left']
-                right = df['right']
-                gains
-        Tree attributes:
-            Tree(name, root, split_dims, eval_dims) where:
-                split_dims = unique values of df['split_dim']
-                eval_dims = ?
+        Create a tree from a dictionary object.
         """
         def _recurse(node, n): 
             if n in d:
