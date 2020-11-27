@@ -32,10 +32,6 @@ def show_samples(node, vis_dims, colour_dim=None, alpha=None, spark=False, ax=No
         else:
             ax.scatter(x[:,0], x[:,1], s=0.25, c='k', alpha=alpha) 
         
-        
-# ==========================================
-# Functions below this line use whole trees.
-
 def show_lines(tree, attributes, max_depth=np.inf, maximise=False, show_spread=False, ax=None):
     """
     Given a tree with one split_dim, display one or more attributes using horizontal lines for each node.
@@ -48,8 +44,8 @@ def show_lines(tree, attributes, max_depth=np.inf, maximise=False, show_spread=F
                        (('q1q3',a[1]) if a[0]=='median' else None)) 
                        for a in attributes]
     # Collect the list of nodes to show.
-    nodes_to_show = list(tree.propagate({}, max_depth=np.inf))
-    values = gather_attributes(nodes_to_show, attributes)
+    nodes = list(tree.propagate({}, max_depth=np.inf))
+    values = gather_attributes(nodes, attributes)
     # Create new axes if needed.
     if ax is None: _, ax = mpl.pyplot.subplots()#figsize=(9,8))
     split_dim_name = tree.root.source.dim_names[tree.split_dims[0]]
@@ -57,7 +53,7 @@ def show_lines(tree, attributes, max_depth=np.inf, maximise=False, show_spread=F
     # Colour cycle.
     colours = mpl.pyplot.rcParams['axes.prop_cycle'].by_key()['color']
     for i, attr in enumerate(attributes[:num_attributes]):
-        for n, (node, value) in enumerate(zip(nodes_to_show, values[i])):
+        for n, (node, value) in enumerate(zip(nodes, values[i])):
             mn, mx = node.bb_max[tree.split_dims[0]] if maximise else node.bb_min[tree.split_dims[0]]
             mn = max(mn, tree.root.bb_min[tree.split_dims[0],0])
             mx = min(mx, tree.root.bb_min[tree.split_dims[0],1])
@@ -74,32 +70,41 @@ def show_lines(tree, attributes, max_depth=np.inf, maximise=False, show_spread=F
     ax.legend()
     return ax
 
-def show_rectangles(tree, vis_dims=None, attribute=None, slice_dict={},
-                    max_depth=np.inf, maximise=False, cmap_lims=None, fill_colour=None, edge_colour=None, ax=None):
+def show_rectangles(tree, vis_dims=None, attribute=None, 
+                    slice_dict={}, max_depth=np.inf, maximise=False, project_resolution=None,
+                    cmap_lims=None, fill_colour=None, edge_colour=None, ax=None):
     """
-    Given a tree with two split_dims, display one attribute using a coloured rectangle for each node.
+    Compute the rectangular projections of nodes from tree onto vis_dims, and colour according to attribute.
+    Where multiple projections overlap, compute a marginal value using the weighted_average function from utils.
     """
     if vis_dims is None:
-        assert len(tree.split_dims) == 2
+        assert len(tree.split_dims) == 2, 'Can only leave vis_dims unspecified if |tree.split_dims| = 2.'
         vis_dims = tree.split_dims
     else:
-        assert len(slice_dict) == len(tree.split_dims) - len(vis_dims)
         # Allow dim_names to be specified instead of numbers.
         if type(vis_dims[0]) == str: vis_dims = [tree.root.source.dim_names.index(v) for v in vis_dims] 
     # Set up axes.
     ax = _ax_setup(ax, tree, vis_dims, attribute=attribute, slice_dict=slice_dict)
     # Collect the list of nodes to show.
-    nodes_to_show = list(tree.propagate(slice_dict, maximise=maximise, max_depth=max_depth))
-    values = gather_attributes(nodes_to_show, [attribute])
-    # Extract bounding boxes.
-    bbs = [(bb_clip(node.bb_max[vis_dims], tree.root.bb_min[vis_dims]) if maximise 
-            else node.bb_min[vis_dims]) for node in nodes_to_show]
-    if attribute is not None:
-        # Fill according to attribute value.
-        lims_and_values_to_rectangles(ax, bbs, values=values[0], cmap=_cmap(attribute), cmap_lims=cmap_lims, edge_colour=edge_colour)
-    else: 
-        # White fill (adds black borders if none specified.)
-        lims_and_values_to_rectangles(ax, bbs, fill_colour=fill_colour, edge_colour=edge_colour)
+    nodes = list(tree.propagate(slice_dict, maximise=maximise, max_depth=max_depth))
+    if not(np.array_equal(vis_dims, tree.split_dims)) and attribute is not None:
+        # If require projection.
+        # TODO: Can avoid this if conditioned along (split_dims - vis_dims).
+        assert attribute[0] == 'mean', 'Can only project mean attributes.'
+        projections = project(nodes, vis_dims, maximise=maximise, resolution=project_resolution)
+        colour_dim = attribute[1]
+        if type(colour_dim) == str: colour_dim = tree.root.source.dim_names.index(colour_dim)
+        values = [weighted_average(leaves, colour_dim, bb, vis_dims) for bb,leaves in projections]
+        bbs = [bb_clip(bb, tree.root.bb_min[vis_dims]) for bb,_ in projections]
+    else:
+        # If don't require projection.
+        values = list(gather_attributes(nodes, [attribute])[0])
+        bbs = [(bb_clip(node.bb_max[vis_dims], tree.root.bb_min[vis_dims]) if maximise 
+                else node.bb_min[vis_dims]) for node in nodes]
+    # Create rectangles.
+    lims_and_values_to_rectangles(ax, bbs, 
+        values=values, cmap=_cmap(attribute), cmap_lims=cmap_lims, 
+        fill_colour=fill_colour, edge_colour=edge_colour)
     return ax
 
 def show_difference_rectangles(tree_a, tree_b, attribute, max_depth=np.inf, maximise=False, cmap_lims=None, edge_colour=None, ax=None):
@@ -109,8 +114,9 @@ def show_difference_rectangles(tree_a, tree_b, attribute, max_depth=np.inf, maxi
     """
     raise NotImplementedError("Need to clip intersection to *inner* of tree_a,root.bb_min and tree_b,root.bb_min")
     assert len(tree_a.split_dims) == 2 and tree_a.split_dims == tree_b.split_dims
+    vis_dims = tree_a.split_dims
     # Set up axes.
-    ax = _ax_setup(ax, tree_a, tree_a.split_dims, attribute=attribute, diff=True, tree_b=tree_b)    
+    ax = _ax_setup(ax, tree_a, vis_dims, attribute=attribute, diff=True, tree_b=tree_b)    
     # Collect the lists of nodes to show.
     nodes_a = list(tree_a.propagate({}, max_depth=max_depth))
     values_a = gather_attributes(nodes_a, [attribute])
@@ -120,13 +126,35 @@ def show_difference_rectangles(tree_a, tree_b, attribute, max_depth=np.inf, maxi
     intersections = []; diffs = []
     for node_a, value_a in zip(nodes_a, values_a[0]):
         for node_b, value_b in zip(nodes_b, values_b[0]):
-            inte = intersect_nodes(node_a, node_b, tree_a.split_dims, maximise)
+            inte = bb_intersect(node_a.bb_max[vis_dims] if maximise else node_a.bb_min[vis_dims], 
+                                node_b.bb_max[vis_dims] if maximise else node_b.bb_min[vis_dims])
             if inte is not None: # Only store if intersection is non-empty.
                 intersections.append(inte)
                 diffs.append(value_a - value_b)
     # Create rectangles.
     lims_and_values_to_rectangles(ax, intersections, values=diffs, cmap=_cmap(attribute), cmap_lims=cmap_lims, edge_colour=edge_colour)    
     return ax
+
+def lims_and_values_to_rectangles(ax, lims, offsets=None, values=None, cmap=None, cmap_lims=None, fill_colour=None, edge_colour=None):
+    """xxx"""
+    if values != [None]:
+        # Compute fill colour.
+        if cmap_lims is None: mn, mx = np.min(values), np.max(values)
+        else: mn, mx = cmap_lims
+        if mx == mn: fill_colours = [cmap[0](0.5) for _ in values] # Default to midpoint.
+        else: fill_colours = [cmap[0](v) for v in (np.array(values) - mn) / (mx - mn)]
+        # Create colour bar.
+        norm = mpl.colors.Normalize(vmin=mn, vmax=mx)
+        ax.figure.colorbar(mpl.cm.ScalarMappable(norm=norm, cmap=cmap[1]), ax=ax)
+    else:
+        if fill_colour == None and edge_colour == None: edge_colour = 'k' # Show lines by default if no fill.    
+        fill_colours = [fill_colour for _ in lims]
+    for i, (l, fill_colour) in enumerate(zip(lims, fill_colours)):
+        r = _make_rectangle(l, fill_colour, edge_colour, alpha=1)
+        ax.add_patch(r)
+        if offsets is not None: # For 3D plotting.
+            art3d.pathpatch_2d_to_3d(r, z=offsets[i], zdir="z")
+    ax.autoscale_view()
 
 def show_derivatives(tree, max_depth=np.inf, scale=1, pivot='tail', ax=None):
     """
@@ -189,9 +217,6 @@ def show_transition_graph(tree, layout_dims=None, highlight_path=None, alpha=Fal
         ax.tick_params(left=True, bottom=True, labelleft=True, labelbottom=True)
     return ax
 
-# ===========================
-# SHAP-based visualisations.
-
 def show_shap_dependence(tree, node, wrt_dim, shap_dim, vis_dim=None, deinteraction_dim=None, colour_dim=None, subsample=None):
     """
     For all the samples at a node (or a subsample), scatter the SHAP values for shap_dim w.r.t. wrt_dim.
@@ -241,8 +266,6 @@ def show_shap_dependence(tree, node, wrt_dim, shap_dim, vis_dim=None, deinteract
     ax.scatter(d[:,0], d[:,1], s=0.5, alpha=0.1, c=colours)
     return ax
 
-# ========================================================
-
 def _ax_setup(ax, tree, vis_dims, attribute=None, diff=False, tree_b=None, derivs=False, slice_dict={}):
     if ax is None: _, ax = mpl.pyplot.subplots(figsize=(3,12/5))
     vis_dim_names = [tree.root.source.dim_names[v] for v in vis_dims]
@@ -267,32 +290,12 @@ def _ax_spark(ax, lims):
     ax.set_yticks(lims[1])
     return ax
 
-def lims_and_values_to_rectangles(ax, lims, offsets=None, values=None, cmap=None, cmap_lims=None, fill_colour=None, edge_colour=None):
-    """xxx"""
-    if values is not None:
-        # Compute fill colour.
-        if cmap_lims is None: mn, mx = np.min(values), np.max(values)
-        else: mn, mx = cmap_lims
-        if mx == mn: fill_colours = [cmap[0](0.5) for _ in values] # Default to midpoint.
-        else: fill_colours = [cmap[0](v) for v in (values - mn) / (mx - mn)]
-        # Create colour bar.
-        norm = mpl.colors.Normalize(vmin=mn, vmax=mx)
-        ax.figure.colorbar(mpl.cm.ScalarMappable(norm=norm, cmap=cmap[1]), ax=ax)
-    else:
-        if fill_colour == None and edge_colour == None: edge_colour = 'k' # Show lines by default if no fill.    
-        fill_colours = [fill_colour for _ in lims]
-    for i, (l, fill_colour) in enumerate(zip(lims, fill_colours)):
-        r = _make_rectangle(l, fill_colour, edge_colour, alpha=1)
-        ax.add_patch(r)
-        if offsets is not None: # For 3D plotting.
-            art3d.pathpatch_2d_to_3d(r, z=offsets[i], zdir="z")
-    ax.autoscale_view()
-
 def _make_rectangle(lims, fill_colour, edge_colour, alpha):
     (xl, xu), (yl, yu) = lims
     fill_bool = (fill_colour != None)
     return mpl.patches.Rectangle(xy=[xl,yl], width=xu-xl, height=yu-yl, fill=fill_bool, facecolor=fill_colour, alpha=alpha, edgecolor=edge_colour, lw=0.5, zorder=-1) 
 
 def _cmap(attribute):
+    if attribute is None: return None
     if attribute[0] in ('std','std_c','iqr'): return (mpl.cm.coolwarm, 'coolwarm') # Reverse for measures of spread.
     else:                                     return (mpl.cm.coolwarm_r, 'coolwarm_r')                 

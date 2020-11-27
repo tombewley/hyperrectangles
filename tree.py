@@ -1,6 +1,6 @@
 from .utils import *
 import numpy as np
-from itertools import product, chain, combinations
+from itertools import chain, combinations
 from math import factorial
 import networkx as nx
 from tqdm import tqdm
@@ -84,16 +84,8 @@ class Tree:
             elif n == 1: p.append(next(iter(leaves)).mean[dims]) # If leaf uniquely determined.
             else:
                 # In general, x does not uniquely determine a leaf. Compute population-weighted average.                
-                p.append(self.weighted_average(leaves, dims))            
+                p.append(weighted_average(leaves, dims))            
         return np.array(p)
-
-    def weighted_average(self, leaves, dims):
-        """
-        xxx
-        """
-        return np.average([l.mean[dims] for l in leaves], axis=0,
-                           weights=[l.num_samples for l in leaves])
-
 
     def score(self, X, dims, ord=2): 
         # Allow dim_names to be specified instead of numbers.
@@ -263,31 +255,6 @@ class Tree:
             print(f'Ignoring {ignore_dim}...')
             shaps[ignore_dim] = self.shap(X, wrt_dim, ignore_dim=ignore_dim, maximise=maximise)
         return shaps
-
-    def project(self, dims, maximise=False):
-        """
-        Project the leaves of the tree down onto dims for visualisation or analysis.
-        """
-        if type(dims[0]) == str: dims = [self.root.source.dim_names.index(d) for d in dims]
-        # List all the unique thresholds along each dim.
-        thresholds = [set() for _ in dims]    
-        for leaf in self.leaves:
-            for i,d in enumerate(dims): 
-                thresholds[i].update(leaf.bb_max[d] if maximise else leaf.bb_min[d])
-        thresholds = [sorted(t) for t in thresholds] # Sort thresholds.
-        # Iterate through the Cartesian product of intervals, 
-        # and use the propagate() function to find all overlapping leaves.
-        nones = [None for _ in self.root.source.dim_names]
-        n = np.prod([len(t)-1 for t in thresholds])
-        projection = []    
-        for indices in tqdm(product(*[range(len(t)-1) for t in thresholds]), total=n):
-            bb = np.array([[t[i],t[i+1]] for i, t in zip(indices, thresholds)])
-            bb_with_nones = nones.copy()
-            for d, b in zip(dims, bb): bb_with_nones[d] = b
-            overlapping_leaves = self.propagate(bb_with_nones, maximise=maximise)
-            # Only store this bounding box if it intersects a nonzero number of leaves.
-            if len(overlapping_leaves) > 0: projection.append((bb, overlapping_leaves))
-        return projection
 
     def _get_leaves(self):
         leaves = []

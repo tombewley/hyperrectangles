@@ -58,7 +58,6 @@ def diagram(tree, pred_dims, sf=3, verbose=False, colour="#ffffff", out_name=Non
     (graph,) = pydot.graph_from_dot_data(graph_spec+'}') 
     if png: graph.write_png(f"{out_name if out_name is not None else tree.name}.png") 
     else:   graph.write_svg(f"{out_name if out_name is not None else tree.name}.svg") 
-    
 
 def rule(node, maximise=True, sf=3): 
     """

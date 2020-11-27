@@ -15,7 +15,7 @@ class Source:
         self.all_sorted_indices = np.argsort(data, axis=0) 
         # Scale factors for variance are reciprocals of global variance.
         var = np.var(data, axis=0)
-        var[var==0] = 1
+        var[var==0] = 1 # Prevent div/0 error.
         self.global_var_scale = 1 / var
         # Empty dictionary for storing trees.
         self.trees = {}
