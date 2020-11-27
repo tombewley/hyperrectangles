@@ -34,7 +34,7 @@ class Tree:
                         try:
                             if xd is None or np.isnan(xd): continue
                             # For scalar.
-                            if not(xd >= lims[0] and xd < lims[1]): return set() 
+                            if not(xd >= lims[0] and xd <= lims[1]): return set() 
                         except:
                             # For (min, max) interval.
                             compare = [[i >= l for i in xd] for l in lims]
