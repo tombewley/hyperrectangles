@@ -83,7 +83,7 @@ def gather_attributes(nodes, attributes):
     """
     results = []
     for attr in attributes:
-        if attr is None: results.append(None)
+        if attr is None: results.append([None])
         else:
             # Allow dim_name to be specified instead of number.
             if type(attr[1]) == str: dim = nodes[0].source.dim_names.index(attr[1])
@@ -142,7 +142,7 @@ def project(nodes, dims, maximise=False, resolution=None):
                 # If any unallocated remaining, add the final threshold (will violate resolution).
                 t_filtered.append((t_idx, [set(), unallocated_close]))
             thresholds[i] = t_filtered
-            print(len(t),'->',len(t_filtered))
+            print(i, len(t),'->',len(t_filtered))
     # Iterate through all Cartesian products of intervals (bounding boxes), 
     # keeping track of the "open" nodes in each bounding box.
     open_nodes, projections = [set() for _ in dims], []    
@@ -160,8 +160,8 @@ def project(nodes, dims, maximise=False, resolution=None):
             # The overlapping nodes are those that are open along all dims.
             overlapping_nodes = set.intersection(*open_nodes)
             # Only store if there are a nonzero number of overlapping nodes.
-            if len(overlapping_nodes) > 0: projections.append((bb, overlapping_nodes))
-    print('Projection complete.')
+            if len(overlapping_nodes) > 0: projections.append([bb, overlapping_nodes])
+    print('Projection complete')
     return projections
 
 def weighted_average(nodes, dims, bb=None, intersect_dims=None):

@@ -4,33 +4,34 @@ import matplotlib as mpl
 import mpl_toolkits.mplot3d.art3d as art3d
 import networkx as nx
 
-def show_samples(node, vis_dims, colour_dim=None, alpha=None, spark=False, ax=None):
+def show_samples(node, vis_dims, colour_dim=None, alpha=None, spark=False, subsample=None, ax=None):
     """
     Scatter plot across vis_dims of all the samples contained in node.
+    TODO: colour_dim.
     """
     assert len(vis_dims) in (2,3)
     # Allow dim_names to be specified instead of numbers.
     if type(vis_dims[0]) == str: vis_dims = [node.source.dim_names.index(v) for v in vis_dims]
     # if type(colour_dim) == str: colour_dim = node.source.dim_names.index(colour_dim)
-    x = node.source.data[node.sorted_indices[:,0][:,None], vis_dims]
-    lims = [[x[:,0].min(), x[:,0].max()], [x[:,1].min(), x[:,1].max()]]
+    X = node.source.data[subsample_sorted_indices(node.sorted_indices, subsample)[:,0][:,None], vis_dims]
+    lims = [[X[:,0].min(), X[:,0].max()], [X[:,1].min(), X[:,1].max()]]
     if ax is None: 
         if spark: ax = _ax_spark(ax, lims)
         else: _, ax = mpl.pyplot.subplots()#figsize=(8,8))
     # Automatically calculate alpha.
-    if alpha is None: alpha = 1 / len(x)**0.5
+    if alpha is None: alpha = 1 / len(X)**0.5
     if spark:
-        ax.scatter(x[:,0], x[:,1], s=0.25, c='#fe5d02', alpha=alpha) 
+        ax.scatter(X[:,0], X[:,1], s=0.25, c='#fe5d02', alpha=alpha) 
         y = node.mean[vis_dims[1]]
         ax.plot(lims[0], [y,y], c='k')
     else:
         ax.set_xlabel(node.source.dim_names[vis_dims[0]])
         ax.set_ylabel(node.source.dim_names[vis_dims[1]])
         if len(vis_dims) == 3: 
-            ax.scatter(x[:,0], x[:,1], x[:,2], s=0.25, c='k', alpha=alpha) 
+            ax.scatter(X[:,0], X[:,1], X[:,2], s=0.25, c='k', alpha=alpha) 
             ax.set_zlabel(node.source.dim_names[vis_dims[2]])
         else:
-            ax.scatter(x[:,0], x[:,1], s=0.25, c='k', alpha=alpha) 
+            ax.scatter(X[:,0], X[:,1], s=0.25, c='k', alpha=alpha) 
         
 def show_lines(tree, attributes, max_depth=np.inf, maximise=False, show_spread=False, ax=None):
     """
@@ -44,7 +45,7 @@ def show_lines(tree, attributes, max_depth=np.inf, maximise=False, show_spread=F
                        (('q1q3',a[1]) if a[0]=='median' else None)) 
                        for a in attributes]
     # Collect the list of nodes to show.
-    nodes = list(tree.propagate({}, max_depth=np.inf))
+    nodes = list(tree.propagate({}, mode=('max' if maximise else 'min'), max_depth=np.inf))
     values = gather_attributes(nodes, attributes)
     # Create new axes if needed.
     if ax is None: _, ax = mpl.pyplot.subplots()#figsize=(9,8))
@@ -86,7 +87,9 @@ def show_rectangles(tree, vis_dims=None, attribute=None,
     # Set up axes.
     ax = _ax_setup(ax, tree, vis_dims, attribute=attribute, slice_dict=slice_dict)
     # Collect the list of nodes to show.
-    nodes = list(tree.propagate(slice_dict, maximise=maximise, max_depth=max_depth))
+    if slice_dict != {}: slice_list = dim_dict_to_list(slice_dict, tree.root.source.dim_names)
+    else: slice_list = slice_dict
+    nodes = list(tree.propagate(slice_list, mode=('max' if maximise else 'min'), max_depth=max_depth))
     if not(np.array_equal(vis_dims, tree.split_dims)) and attribute is not None:
         # If require projection.
         # TODO: Can avoid this if conditioned along (split_dims - vis_dims).
@@ -94,8 +97,16 @@ def show_rectangles(tree, vis_dims=None, attribute=None,
         projections = project(nodes, vis_dims, maximise=maximise, resolution=project_resolution)
         colour_dim = attribute[1]
         if type(colour_dim) == str: colour_dim = tree.root.source.dim_names.index(colour_dim)
-        values = [weighted_average(leaves, colour_dim, bb, vis_dims) for bb,leaves in projections]
-        bbs = [bb_clip(bb, tree.root.bb_min[vis_dims]) for bb,_ in projections]
+        # Ensure slice_dict is factored into the weighting.
+        weight_dims = vis_dims.copy()
+        if slice_dict != {}:
+            for d, s in enumerate(slice_list): 
+                if s is not None and type(s) not in (float, int) and d not in vis_dims:
+                    weight_dims.append(d)
+                    for i in range(len(projections)):
+                        projections[i][0] = np.vstack((projections[i][0], s))
+        values = [weighted_average(leaves, colour_dim, bb, weight_dims) for bb,leaves in projections]
+        bbs = [bb_clip(bb[:len(vis_dims)], tree.root.bb_min[vis_dims]) for bb,_ in projections]
     else:
         # If don't require projection.
         values = list(gather_attributes(nodes, [attribute])[0])
@@ -118,9 +129,9 @@ def show_difference_rectangles(tree_a, tree_b, attribute, max_depth=np.inf, maxi
     # Set up axes.
     ax = _ax_setup(ax, tree_a, vis_dims, attribute=attribute, diff=True, tree_b=tree_b)    
     # Collect the lists of nodes to show.
-    nodes_a = list(tree_a.propagate({}, max_depth=max_depth))
+    nodes_a = list(tree_a.propagate({}, mode=('max' if maximise else 'min'), max_depth=max_depth))
     values_a = gather_attributes(nodes_a, [attribute])
-    nodes_b = list(tree_b.propagate({}, max_depth=max_depth))
+    nodes_b = list(tree_b.propagate({}, mode=('max' if maximise else 'min'), max_depth=max_depth))
     values_b = gather_attributes(nodes_b, [attribute])
     # Compute the pairwise intersections between nodes.
     intersections = []; diffs = []
@@ -166,7 +177,7 @@ def show_derivatives(tree, max_depth=np.inf, scale=1, pivot='tail', ax=None):
     ax = _ax_setup(ax, tree, tree.split_dims, derivs=True)    
     # Collect the mean locations and derivative values.
     attributes = [('mean',s) for s in vis_dim_names] + [('mean',f'd_{s}') for s in vis_dim_names]
-    values = gather_attributes(list(tree.propagate({}, max_depth=max_depth)), attributes)
+    values = gather_attributes(list(tree.propagate({}, mode=('max' if maximise else 'min'), max_depth=max_depth)), attributes)
     # Create arrows centred at means.    
     mpl.pyplot.quiver(values[0], values[1], values[2], values[3], 
                       pivot=pivot, angles='xy', scale_units='xy', units='inches', 
@@ -217,7 +228,8 @@ def show_transition_graph(tree, layout_dims=None, highlight_path=None, alpha=Fal
         ax.tick_params(left=True, bottom=True, labelleft=True, labelbottom=True)
     return ax
 
-def show_shap_dependence(tree, node, wrt_dim, shap_dim, vis_dim=None, deinteraction_dim=None, colour_dim=None, subsample=None):
+def show_shap_dependence(tree, node, wrt_dim, shap_dim, vis_dim=None, deinteraction_dim=None, 
+                         colour_dim=None, colour='k', subsample=None):
     """
     For all the samples at a node (or a subsample), scatter the SHAP values for shap_dim w.r.t. wrt_dim.
     Distribute points along shap_dim *or* a specified vis_dim, and optionally colour points by colour_dim.
@@ -233,12 +245,12 @@ def show_shap_dependence(tree, node, wrt_dim, shap_dim, vis_dim=None, deinteract
     # Compute SHAP values for all samples.
     X = node.source.data[subsample_sorted_indices(node.sorted_indices, subsample)[:,0]]
     if deinteraction_dim is None: 
-        shaps = tree.shap(X, wrt_dim=wrt_dim)
+        shaps = tree.shap(X, wrt_dim=wrt_dim, maximise=False)
         d = np.array(list(zip(X[:,vis_dim], 
                           [s[shap_dim] for s in shaps])))
     else: 
         # Remove interaction effects with deinteraction_dim.
-        shaps = tree.shap_with_ignores(X, wrt_dim=wrt_dim, ignore_dims=[deinteraction_dim])
+        shaps = tree.shap_with_ignores(X, wrt_dim=wrt_dim, ignore_dims=[deinteraction_dim], maximise=False)
         d = np.array(list(zip(X[:,vis_dim], 
                           [s[shap_dim] - (i[shap_dim] / 2) for s,i in # <<< NOTE: DIVIDE BY 2?
                           zip(shaps[None], shaps[deinteraction_dim])])))
@@ -252,7 +264,7 @@ def show_shap_dependence(tree, node, wrt_dim, shap_dim, vis_dim=None, deinteract
     _, ax = mpl.pyplot.subplots(figsize=(12/5,12/5))
     ax.set_xlabel(tree.root.source.dim_names[vis_dim])    
     ax.set_ylabel(f'SHAP for {tree.root.source.dim_names[shap_dim]} w.r.t. {tree.root.source.dim_names[wrt_dim]}')
-    if colour_dim is None: colours = 'k'
+    if colour_dim is None: colours = colour
     else:
         # cmap = (mpl.cm.copper,'copper')
         cmap = (mpl.cm.coolwarm_r, 'coolwarm_r') 
@@ -263,7 +275,7 @@ def show_shap_dependence(tree, node, wrt_dim, shap_dim, vis_dim=None, deinteract
         norm = mpl.colors.Normalize(vmin=mn, vmax=mx)
         cbar = ax.figure.colorbar(mpl.cm.ScalarMappable(norm=norm, cmap=cmap[1]), ax=ax)
         cbar.set_label(tree.root.source.dim_names[colour_dim], rotation=270)
-    ax.scatter(d[:,0], d[:,1], s=0.5, alpha=0.1, c=colours)
+    ax.scatter(d[:,0], d[:,1], s=0.5, alpha=0.075, c=colours)
     return ax
 
 def _ax_setup(ax, tree, vis_dims, attribute=None, diff=False, tree_b=None, derivs=False, slice_dict={}):

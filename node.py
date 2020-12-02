@@ -100,6 +100,8 @@ class Node:
             n = np.vstack((n, np.flip(n+1)))[:,:,None,None]
         splits, extra = [], []
         for split_dim in split_dims:
+            # Cannot split on a dim if there is no variance, so skip.
+            if self.var_sum[split_dim] == 0: continue
             # Evaluate splits along this dim, returning (co)variance sums.
             cov_or_var_sum = self._eval_splits_one_dim(split_dim, eval_dims, cov=corr)
             if corr: 
