@@ -1,9 +1,6 @@
 from .model import Model
 from .utils import *
 import numpy as np
-from itertools import chain, combinations
-from math import factorial
-from tqdm import tqdm
 
 class Tree(Model):
     """
@@ -11,7 +8,7 @@ class Tree(Model):
     """
     def __init__(self, name, root, split_dims, eval_dims):
         Model.__init__(self, name, leaves=None) # Don't explicitly pass leaves. 
-        self.root, self.split_dims, self.eval_dims = root, split_dims, eval_dims
+        self.root, self.source, self.split_dims, self.eval_dims = root, root.source, split_dims, eval_dims
         self.leaves = self._get_leaves() # Collect the list of leaves.
 
     def propagate(self, x, contain=False, mode='min', max_depth=np.inf):
@@ -19,7 +16,7 @@ class Tree(Model):
         Overwrites Model.propagate using a more efficient tree-specific method.
         """
         # Convert dictionary representation to list.
-        if type(x) == dict: x = dim_dict_to_list(x, self.root.source.dim_names)
+        if type(x) == dict: x = dim_dict_to_list(x, self.source.dim_names)
         def _recurse(node, depth=0):
             if node is None: return set()
             if node.split_dim is None or depth >= max_depth: 
@@ -134,7 +131,7 @@ class Tree(Model):
         # Subfunction for calculating costs is similar to the _recurse() function inside backprop_gains(),
         # except it takes the weighted sum of var_sum rather than per-feature, and realised only.
         def _recurse(node):
-            var_sum = np.dot(node.var_sum, self.root.source.global_var_scale)
+            var_sum = np.dot(node.var_sum, self.source.global_var_scale)
             if node.split_dim is None: return [var_sum], 1
             (left, num_left), (right, num_right) = _recurse(node.left), _recurse(node.right)
             var_sum_leaves, num_leaves = left + right, num_left + num_right
@@ -174,70 +171,6 @@ class Tree(Model):
             node.gains['potential_alpha'] = node.gains['potential'] / (node.subtree_size - 1)
             return node.gains, node.subtree_size
         _recurse(self.root)
-
-    def shap(self, X, wrt_dim, ignore_dim=None, maximise=False): 
-        """
-        An implementation of TreeSHAP for computing local importances for split_dims, based on Shapley values.
-        NOTE: Not as heavily-optimised as the algorithm in the original paper.
-        """
-        # Allow dim_name to be specified instead of number.
-        if type(wrt_dim) == str: wrt_dim = self.root.source.dim_names.index(wrt_dim)
-        shap_dims = set(self.split_dims)
-        if ignore_dim is not None:
-            if type(ignore_dim) == str: ignore_dim = self.root.source.dim_names.index(ignore_dim)
-            shap_dims -= {ignore_dim}
-        # Store the mean value along wrt_dim, and the population, for all leaves.
-        means_and_pops = {l: (l.mean[wrt_dim], l.num_samples) for l in self.leaves}
-        # Pre-store some reused values.
-        nones = [None for _ in self.root.source.dim_names]
-        num_shap_dims = len(shap_dims)
-        w = [factorial(i) * factorial(num_shap_dims-i-1) / factorial(num_shap_dims) 
-             for i in range(0,num_shap_dims)]
-        shaps = []
-        for x in tqdm(X):
-            # For each split_dim, find the set of leaves compatible with the sample's value along this dim.
-            compatible_leaves = {}
-            for d in shap_dims:
-                x_s = nones.copy(); x_s[d] = x[d]
-                compatible_leaves[d] = set(self.propagate(x_s, mode=('max' if maximise else 'min')))
-            # Iterate through powerset of shap_dims (from https://stackoverflow.com/a/1482316).
-            marginals, contributions = {}, {d:{} for d in shap_dims}
-            for dim_set in chain.from_iterable(combinations(shap_dims, r) for r in range(num_shap_dims+1)):
-                if dim_set == (): mp = np.array(list(means_and_pops.values())) # All leaves.
-                else:
-                    matching_leaves = set.intersection(*(compatible_leaves[d] for d in dim_set)) # Leaves compatible with dim_set.
-                    mp = np.array([means_and_pops[l] for l in matching_leaves]) # Means and pops as NumPy array.
-                try: marginals[dim_set] = np.average(mp[:,0], weights=mp[:,1]) # Population-weighted average.
-                except:
-                    print(x)
-                    print(dim_set)
-                    print([len(compatible_leaves[d]) for d in dim_set])
-                    print(self.propagate(x, mode=('max' if maximise else 'min')))
-                    print(mp)
-
-
-                    raise Exception()
-
-
-                # For each dim in the dim_set, compute the effect of adding it.
-                if len(dim_set) > 0:
-                    for i, d in enumerate(dim_set):
-                        dim_set_without = dim_set[:i]+dim_set[i+1:]
-                        contributions[d][dim_set_without] = marginals[dim_set] - marginals[dim_set_without]
-            # Finally, compute SHAP values.
-            shaps.append({d: sum(w[len(dim_set)] * con # weighted sum of contributions...
-                          for dim_set, con in c.items()) # ...from each dim_set...     
-                          for d, c in contributions.items()}) # ...for each dim.
-        return shaps
-
-    def shap_with_ignores(self, X, wrt_dim, ignore_dims=None, maximise=False):
-        """This function allows us to calculate pairwise SHAP interaction values."""
-        if ignore_dims is None: ignore_dims = self.split_dims
-        shaps = {}
-        for ignore_dim in set(ignore_dims) | {None}:
-            print(f'Ignoring {ignore_dim}...')
-            shaps[ignore_dim] = self.shap(X, wrt_dim, ignore_dim=ignore_dim, maximise=maximise)
-        return shaps
 
     def _get_leaves(self):
         leaves = []

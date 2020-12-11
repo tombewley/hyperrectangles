@@ -50,7 +50,7 @@ def show_lines(tree, attributes, max_depth=np.inf, maximise=False, show_spread=F
     values = gather_attributes(nodes, attributes)
     # Create new axes if needed.
     if ax is None: _, ax = plt.subplots()#figsize=(9,8))
-    split_dim_name = tree.root.source.dim_names[tree.split_dims[0]]
+    split_dim_name = tree.source.dim_names[tree.split_dims[0]]
     ax.set_xlabel(split_dim_name)
     # Colour cycle.
     colours = plt.rcParams['axes.prop_cycle'].by_key()['color']
@@ -84,11 +84,11 @@ def show_rectangles(tree, vis_dims=None, attribute=None,
         vis_dims = tree.split_dims
     else:
         # Allow dim_names to be specified instead of numbers.
-        if type(vis_dims[0]) == str: vis_dims = [tree.root.source.dim_names.index(v) for v in vis_dims] 
+        if type(vis_dims[0]) == str: vis_dims = [tree.source.dim_names.index(v) for v in vis_dims] 
     # Set up axes.
     ax = _ax_setup(ax, tree, vis_dims, attribute=attribute, slice_dict=slice_dict)
     # Collect the list of nodes to show.
-    if slice_dict != {}: slice_list = dim_dict_to_list(slice_dict, tree.root.source.dim_names)
+    if slice_dict != {}: slice_list = dim_dict_to_list(slice_dict, tree.source.dim_names)
     else: slice_list = slice_dict
     nodes = list(tree.propagate(slice_list, mode=('max' if maximise else 'min'), max_depth=max_depth))
     if not(np.array_equal(vis_dims, tree.split_dims)) and attribute is not None:
@@ -97,7 +97,7 @@ def show_rectangles(tree, vis_dims=None, attribute=None,
         assert attribute[0] == 'mean', 'Can only project mean attributes.'
         projections = project(nodes, vis_dims, maximise=maximise, resolution=project_resolution)
         colour_dim = attribute[1]
-        if type(colour_dim) == str: colour_dim = tree.root.source.dim_names.index(colour_dim)
+        if type(colour_dim) == str: colour_dim = tree.source.dim_names.index(colour_dim)
         # Ensure slice_dict is factored into the weighting.
         weight_dims = vis_dims.copy()
         if slice_dict != {}:
@@ -194,8 +194,8 @@ def show_transition_graph(model, layout_dims=None, highlight_path=None, alpha=Fa
     if layout_dims is not None:
         assert len(layout_dims) == 2 
         # Allow dim_names to be specified instead of numbers.
-        if type(layout_dims[0]) == str: layout_dims = [tree.root.source.dim_names.index(v) for v in layout_dims] 
-        if ax is None: ax = _ax_setup(ax, tree, layout_dims)
+        if type(layout_dims[0]) == str: layout_dims = [model.source.dim_names.index(v) for v in layout_dims] 
+        if ax is None: ax = _ax_setup(ax, model, layout_dims)
         pos = {}; # fixed = []
         for node in G.nodes():
             if node not in ("I","T"): # Not initial/terminal.
@@ -230,7 +230,7 @@ def show_transition_graph(model, layout_dims=None, highlight_path=None, alpha=Fa
     return ax
 
 def show_shap_dependence(tree, node, wrt_dim, shap_dim, vis_dim=None, deinteraction_dim=None, 
-                         colour_dim=None, colour='k', subsample=None):
+                         colour_dim=None, colour='k', alpha=1, subsample=None):
     """
     For all the samples at a node (or a subsample), scatter the SHAP values for shap_dim w.r.t. wrt_dim.
     Distribute points along shap_dim *or* a specified vis_dim, and optionally colour points by colour_dim.
@@ -238,33 +238,28 @@ def show_shap_dependence(tree, node, wrt_dim, shap_dim, vis_dim=None, deinteract
     """
     # Allow dim_names to be specified instead of numbers.
     if vis_dim is None: vis_dim = shap_dim
-    if type(shap_dim) == str: shap_dim = tree.root.source.dim_names.index(shap_dim)
-    if type(wrt_dim) == str: wrt_dim = tree.root.source.dim_names.index(wrt_dim)
-    if type(vis_dim) == str: vis_dim = tree.root.source.dim_names.index(vis_dim)
-    if type(deinteraction_dim) == str: deinteraction_dim = tree.root.source.dim_names.index(deinteraction_dim)
-    if type(colour_dim) == str: colour_dim = tree.root.source.dim_names.index(colour_dim)
+    if type(shap_dim) == str: shap_dim = tree.source.dim_names.index(shap_dim)
+    if type(wrt_dim) == str: wrt_dim = tree.source.dim_names.index(wrt_dim)
+    if type(vis_dim) == str: vis_dim = tree.source.dim_names.index(vis_dim)
+    if type(deinteraction_dim) == str: deinteraction_dim = tree.source.dim_names.index(deinteraction_dim)
+    if type(colour_dim) == str: colour_dim = tree.source.dim_names.index(colour_dim)
     # Compute SHAP values for all samples.
     X = node.source.data[subsample_sorted_indices(node.sorted_indices, subsample)[:,0]]
     if deinteraction_dim is None: 
-        shaps = tree.shap(X, wrt_dim=wrt_dim, maximise=False)
+        shaps = tree.shap(X, shap_dims=tree.split_dims, wrt_dim=wrt_dim, maximise=False)
         d = np.array(list(zip(X[:,vis_dim], 
                           [s[shap_dim] for s in shaps])))
     else: 
         # Remove interaction effects with deinteraction_dim.
-        shaps = tree.shap_with_ignores(X, wrt_dim=wrt_dim, ignore_dims=[deinteraction_dim], maximise=False)
+        shaps = tree.shap_with_ignores(X, shap_dims=tree.split_dims, wrt_dim=wrt_dim, ignore_dims=[deinteraction_dim], maximise=False)
         d = np.array(list(zip(X[:,vis_dim], 
                           [s[shap_dim] - (i[shap_dim] / 2) for s,i in # <<< NOTE: DIVIDE BY 2?
                           zip(shaps[None], shaps[deinteraction_dim])])))
-
-
-
-
-
     if colour_dim is not None: c = X[:,colour_dim]
     # Set up figure.
     _, ax = plt.subplots(figsize=(12/5,12/5))
-    ax.set_xlabel(tree.root.source.dim_names[vis_dim])    
-    ax.set_ylabel(f'SHAP for {tree.root.source.dim_names[shap_dim]} w.r.t. {tree.root.source.dim_names[wrt_dim]}')
+    ax.set_xlabel(tree.source.dim_names[vis_dim])    
+    ax.set_ylabel(f'SHAP for {tree.source.dim_names[shap_dim]} w.r.t. {tree.source.dim_names[wrt_dim]}')
     if colour_dim is None: colours = colour
     else:
         # cmap = (mpl.cm.copper,'copper')
@@ -275,15 +270,15 @@ def show_shap_dependence(tree, node, wrt_dim, shap_dim, vis_dim=None, deinteract
         # Create colour bar.
         norm = mpl.colors.Normalize(vmin=mn, vmax=mx)
         cbar = ax.figure.colorbar(mpl.cm.ScalarMappable(norm=norm, cmap=cmap[1]), ax=ax)
-        cbar.set_label(tree.root.source.dim_names[colour_dim], rotation=270)
-    ax.scatter(d[:,0], d[:,1], s=0.5, alpha=0.075, c=colours)
+        cbar.set_label(tree.source.dim_names[colour_dim], rotation=270)
+    ax.scatter(d[:,0], d[:,1], s=0.05, alpha=alpha, c=colours)
     return ax
 
-def _ax_setup(ax, tree, vis_dims, attribute=None, diff=False, tree_b=None, derivs=False, slice_dict={}):
+def _ax_setup(ax, model, vis_dims, attribute=None, diff=False, tree_b=None, derivs=False, slice_dict={}):
     if ax is None: _, ax = plt.subplots(figsize=(3,12/5))
-    vis_dim_names = [tree.root.source.dim_names[v] for v in vis_dims]
+    vis_dim_names = [model.source.dim_names[v] for v in vis_dims]
     ax.set_xlabel(vis_dim_names[0]); ax.set_ylabel(vis_dim_names[1])
-    title = tree.name
+    title = model.name
     if diff: title += f' vs {tree_b.name}\n$\Delta$ in {attribute[0]} of {attribute[1]}'
     elif attribute: title += f'\n{attribute[0]} of {attribute[1]}'
     elif derivs: title += '\nTime derivatives'

@@ -6,8 +6,8 @@ def rules(tree, pred_dims=None, sf=3, out_name=None):
     """
     Represent tree as a rule set with pred_dims as the consequent.
     """
-    if pred_dims and type(pred_dims[0]) == str: pred_dims = [tree.root.source.dim_names.index(p) for p in pred_dims]
-    dim_names = tree.root.source.dim_names; lines = []    
+    if pred_dims and type(pred_dims[0]) == str: pred_dims = [tree.source.dim_names.index(p) for p in pred_dims]
+    dim_names = tree.source.dim_names; lines = []    
     def _recurse(node, depth=0):
         i = "    " * depth # Indent.     
         if node is None: lines.append(f"{i}return None")       
@@ -30,15 +30,15 @@ def diagram(tree, pred_dims, sf=3, verbose=False, colour="#ffffff", out_name=Non
     """
     Represent tree as a pydot diagram with pred_dims and the consequent.
     """
-    if type(pred_dims[0]) == str: pred_dims = [tree.root.source.dim_names.index(p) for p in pred_dims]
-    dim_names = tree.root.source.dim_names; graph_spec = 'digraph Tree {node [shape=box];'
+    if type(pred_dims[0]) == str: pred_dims = [tree.source.dim_names.index(p) for p in pred_dims]
+    dim_names = tree.source.dim_names; graph_spec = 'digraph Tree {node [shape=box];'
     def _recurse(node, graph_spec, n=0, n_parent=0, dir_label="<"):
         if node is None: graph_spec += f'{n} [label="None"];'
         else:   
             ns = node.num_samples  
             mean = round_sf(node.mean[pred_dims], sf)
             std = round_sf(np.sqrt(np.diag(node.cov)[pred_dims]), sf) 
-            imp = f"{np.dot(node.var_sum[pred_dims], node.source.global_var_scale[pred_dims]):.2E}"
+            imp = f"{np.dot(node.var_sum[pred_dims], tree.source.global_var_scale[pred_dims]):.2E}"
             if node.split_dim is not None:
                 # Decision node.
                 split = f'{dim_names[node.split_dim]}={round_sf(node.split_threshold, sf)}'

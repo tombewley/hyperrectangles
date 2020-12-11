@@ -37,7 +37,9 @@ class Node:
             self.bb_max = np.array([[-np.inf, np.inf] for _ in range(num_dims)]) 
         # These attributes are defined if and when the node is split.
         self.split_dim, self.split_threshold, self.left, self.right, self.gains = None, None, None, None, {} 
-    
+        # This dictionary can be used to store miscellaneous meta information about this node.
+        self.meta = {}
+
     def attr(self, attr):
         """
         Compute a statistical attribute for this node.
