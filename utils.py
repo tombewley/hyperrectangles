@@ -199,15 +199,18 @@ def weighted_average(nodes, dims, bb=None, intersect_dims=None):
     NOTE: This encodes a strong assumption of uniform data distribution within node.bb_min.
     """
     nodes = list(nodes) # Need to have ordering.
+    if len(nodes) == 1: return nodes[0].mean[dims]
     w = np.array([node.num_samples for node in nodes])
     if bb is not None:
         r = []
         for node in nodes:
             node_bb = node.bb_min[intersect_dims]
             node_bb_width = node_bb[:,1] - node_bb[:,0]
-            node_bb_width[node_bb_width==0] = 1 # Prevent div/0 error.
+            node_bb_width_corr = node_bb_width.copy()
+            node_bb_width_corr[node_bb_width==0] = 1 # Prevent div/0 error.
             inte = bb_intersect(node_bb, bb)
-            ratios = (inte[:,1] - inte[:,0]) / node_bb_width
+            ratios = (inte[:,1] - inte[:,0]) / node_bb_width_corr
+            ratios[node_bb_width==0] = 1 # Prevent zero ratio in same circumstance.
             r.append(np.prod(ratios))
         w = w * r
     return np.average([node.mean[dims] for node in nodes], axis=0, weights=w)

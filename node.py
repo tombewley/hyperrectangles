@@ -23,6 +23,8 @@ class Node:
         # Populate with samples if provided.
         self.populate(sorted_indices)
 
+    def __repr__(self): return f"Node with {self.num_samples} samples"
+
     def populate(self, sorted_indices):
         """
         Populate the node with samples and compute statistics.
@@ -34,7 +36,7 @@ class Node:
             X = self.source.data[sorted_indices[:,0]] # Won't actually store this; order doesn't matter.
             self.mean = np.mean(X, axis=0)
             # Minimal bounding box is defined by the samples.
-            self.bb_min = np.array([np.nanmin(X, axis=0), np.nanmax(X, axis=0)]).T
+            self.bb_min = np.array([np.min(X, axis=0), np.max(X, axis=0)]).T
             if self.num_samples > 1:
                 self.cov = np.cov(X, rowvar=False, ddof=0) # ddof=0 overrides bias correction.                
         else: 
@@ -45,8 +47,6 @@ class Node:
         self.cov_sum = self.cov * self.num_samples
         self.var_sum = np.diag(self.cov_sum)
 
-    def __repr__(self): return f"Node with {self.num_samples} samples, split_dim={self.split_dim}"
-    
     def attr(self, attr):
         """
         Compute a statistical attribute for this node.
