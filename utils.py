@@ -108,6 +108,15 @@ def bb_clip(bb, clip):
     bb[:,1] = np.minimum(bb[:,1], clip[:,1])
     return bb
 
+def closest_point_in_bb(x, bb):
+    """
+    Given a point x and hyperectangular bounding box bb, find the point
+    inside bb that is closest to x. This is the same point for all p-norms.
+    """
+    return np.array([bbd[0] if bbd[0] > xd else (
+                     bbd[1] if bbd[1] < xd else (
+                     xd)) for xd, bbd in zip(x, bb)]) 
+
 def project(nodes, dims, maximise=False, resolution=None):
     """
     Project a list of nodes onto dims and list all the regions of intersection.

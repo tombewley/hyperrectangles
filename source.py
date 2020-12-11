@@ -6,7 +6,7 @@ from tqdm import tqdm
 
 class Source:
     """
-    Master class for centrally storing data and building trees.
+    Master class for centrally storing data and building models.
     """
     def __init__(self, data, dim_names):
         self.data = data
@@ -17,11 +17,11 @@ class Source:
         var = np.var(data, axis=0)
         var[var==0] = 1 # Prevent div/0 error.
         self.global_var_scale = 1 / var
-        # Empty dictionary for storing trees.
-        self.trees = {}
+        # Empty dictionary for storing models.
+        self.models = {}
 
     # Dunder/magic methods.
-    def __getitem__(self, name): return self.trees[name]
+    def __getitem__(self, name): return self.models[name]
 
     def subset(self, bb_dict=None, bb_array=None, subsample=None):
         """
@@ -53,8 +53,8 @@ class Source:
                 if ok: _recurse(node.left, depth+1); _recurse(node.right, depth+1)
         root = Node(self, sorted_indices) 
         _recurse(root, 0)
-        self.trees[name] = Tree(name, root, split_dims, eval_dims)
-        return self.trees[name]
+        self.models[name] = Tree(name, root, split_dims, eval_dims)
+        return self.models[name]
 
     def tree_best_first(self, name, split_dims, eval_dims, sorted_indices=None, max_num_leaves=np.inf): 
         """
@@ -78,8 +78,8 @@ class Source:
                                np.dot(node.left.var_sum[eval_dims], self.global_var_scale[eval_dims])),
                               (node.right,
                                np.dot(node.right.var_sum[eval_dims], self.global_var_scale[eval_dims]))]
-        self.trees[name] = Tree(name, root, split_dims, eval_dims)
-        return self.trees[name]
+        self.models[name] = Tree(name, root, split_dims, eval_dims)
+        return self.models[name]
 
     def tree_from_dict(self, name, d): 
         """
@@ -87,21 +87,46 @@ class Source:
         """
         def _recurse(node, n): 
             if n in d:
-                node.split_dim = d[n]['split_dim']
-                node.split_threshold = d[n]['split_threshold']
-                # Most complicated aspect here is splitting the node's data at the threshold.
-                data = self.data[node.sorted_indices[:,node.split_dim], node.split_dim]
-                split_index = bisect.bisect(data, node.split_threshold)
-                left, right = split_sorted_indices(node.sorted_indices, node.split_dim, split_index)
-                node.left = Node(self, left, (node.bb_max.copy(), node.split_dim, 1, node.split_threshold))
-                node.right = Node(self, right, (node.bb_max.copy(), node.split_dim, 0, node.split_threshold))
+                if not node._do_manual_split(d[n]['split_dim'], d[n]['split_threshold']):
+                    raise ValueError(f"Invalid split threshold for node {n}: \"{d[n]}\".")
                 _recurse(node.left, d[n]['left'])
                 _recurse(node.right, d[n]['right'])
         root = Node(self, self.all_sorted_indices)
-        _recurse(root, 1) # NOTE: Root node must have key of 1 in dict.
-        split_dims, eval_dims = list(set(v['split_dim'] for v in d.values())), [] # NOTE: No eval dims?
-        self.trees[name] = Tree(name, root, split_dims, eval_dims)
-        return self.trees[name]
+        _recurse(root, 1) # Root node must have key of 1 in dict.
+        split_dims, eval_dims = list(set(v['split_dim'] for v in d.values())), [] # NOTE: No eval dims.
+        self.models[name] = Tree(name, root, split_dims, eval_dims)
+        return self.models[name]
+
+    def tree_from_func(self, name, func):
+        """
+        Create a tree from a well-formed nested if-then function in Python.
+        Tests must use the < operator; split_dims can either be identified with indices, e.g. x[0],
+        or with a valid entry in self.dim_names.
+        """
+        from dill.source import getsource
+        lines = [l.strip() for l in getsource(func).split("\n")[:-1]]
+        assert lines[0][:3] == "def"
+        def _recurse(node, n):
+            if lines[n][0] == "#": return _recurse(node, n + 1) 
+            elif lines[n][:2] == "if":
+                d, o, t = lines[n][3:-1].split(" ")
+                assert o in ("<", ">=")
+                try: split_dim = int(d.split("[")[1][:-1]) # If index specified.
+                except: split_dim = self.dim_names.index(d) # If dim_name specified.
+                split_dims.add(split_dim)
+                if not node._do_manual_split(split_dim, float(t)):
+                    raise ValueError(f"Invalid split threshold at line {n}: \"{lines[n]}\".")
+                n = _recurse(node.left if o == "<" else node.right, n + 1)
+                assert lines[n] == "else:"
+                n = _recurse(node.right if o == "<" else node.left, n + 1)
+            elif lines[n][:6] == "return": n += 1 # NOTE: Not doing anything with returns.
+            else: raise ValueError(f"Parse error at line {n}: \"{lines[n]}\".")
+            return n
+        split_dims, eval_dims = set(), [] # NOTE: No eval dims.
+        root = Node(self, self.all_sorted_indices)
+        _recurse(root, 1)
+        self.models[name] = Tree(name, root, sorted(split_dims), eval_dims)
+        return self.models[name]
 
     # def question_tree(self, name, split_dims, eval_dims, sorted_indices=None, ord=1):
     #     """
@@ -111,11 +136,11 @@ class Source:
     #     split_dims, eval_dims, sorted_indices = self._preflight_check(split_dims, eval_dims, sorted_indices)
     #     root = Node(self, sorted_indices) 
     #     _, extra = root._do_greedy_split(split_dims, eval_dims, corr=True, one_sided=True)
-    #     self.trees[name] = Tree(name, root, split_dims, eval_dims)
+    #     self.models[name] = Tree(name, root, split_dims, eval_dims)
 
     #     qual = extra[0,:,:,0,1]
 
-    #     return self.trees[name], qual
+    #     return self.models[name], qual
 
     def _preflight_check(self, split_dims, eval_dims, sorted_indices):
         # Allow dim_names to be specified instead of numbers.

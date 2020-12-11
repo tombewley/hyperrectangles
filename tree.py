@@ -7,7 +7,7 @@ from tqdm import tqdm
 
 class Tree:
     """
-    Class for a tree, which is primarily a wrapper for a nested structure of nodes starting at root.
+    Class for a tree, which is a wrapper for a nested structure of nodes starting at root.
     Also has a few attributes and methods in its own right.
     """
     def __init__(self, name, root, split_dims, eval_dims):
@@ -180,6 +180,37 @@ class Tree:
         self = self_prev # Restore deepcopy.
         print('TREE AFTER', len(self._get_leaves()))
         return subtree
+
+    def counterfactual(self, x, foil, fixed_dims, access_mode='min', 
+                       split_dims_only=True, sort_by='L0_L2', return_all=False):
+        """
+        Return a list of minimal counterfactuals from x given foil, sorted by the provided method.
+        """
+        foil = dim_dict_to_list(foil, self.root.source.dim_names)
+        if fixed_dims and type(fixed_dims[0]) == str: fixed_dims = [self.root.source.dim_names.index(d) for d in fixed_dims]
+        delta_dims = self.split_dims if split_dims_only else np.arange(len(foil))
+        # Marginalise out all non-fixed dims in x.
+        x_marg = x.copy()
+        x_marg[[d for d in range(len(x)) if d not in fixed_dims]] = None
+        # Accessible leaves are those that intersect the marginalised x (max mode).
+        leaves_accessible = self.propagate(x_marg, mode=access_mode)
+        # Foil leaves are those that intersect the foil condition (mean mode).
+        leaves_foil = self.propagate(foil, mode='mean') 
+        # We are intersected in leaves that are both accessible and foils.
+        options = []
+        scale = np.sqrt(self.root.source.global_var_scale[delta_dims])
+        for leaf in leaves_accessible & leaves_foil:
+            # Find the closest point in each.
+            x_closest = closest_point_in_bb(x, leaf.bb_min if access_mode=='min' else leaf.bb_max)
+            # Compute the L0 and L2 norms. NOTE: normalise each dim by global standard deviation!
+            delta = (x_closest - x)[delta_dims] * scale
+            l0, l2 = np.linalg.norm(delta, ord=0), np.linalg.norm(delta, ord=2)
+            options.append((leaf, x_closest, l0, l2))
+        # Sort foil options by L0, then by L2.
+        if sort_by == 'L0_L2': options.sort(key=lambda x: (x[2], x[3]))            
+        # Sort foil options by L2.  
+        elif sort_by == 'L2': options.sort(key=lambda x: x[3])   
+        return options if return_all else options[0]
 
     def prune_mccp(self):
         """

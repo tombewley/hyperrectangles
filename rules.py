@@ -2,12 +2,12 @@ from .utils import *
 import numpy as np
 import pydot 
 
-def rules(tree, pred_dims, sf=3, out_name=None): 
+def rules(tree, pred_dims=None, sf=3, out_name=None): 
     """
     Represent tree as a rule set with pred_dims as the consequent.
     """
-    if type(pred_dims[0]) == str: pred_dims = [tree.root.source.dim_names.index(p) for p in pred_dims]
-    d = tree.root.source.dim_names; lines = []
+    if pred_dims and type(pred_dims[0]) == str: pred_dims = [tree.root.source.dim_names.index(p) for p in pred_dims]
+    d = tree.root.source.dim_names; lines = []    
     def _recurse(node, depth=0):
         i = "    " * depth # Indent.     
         if node is None: lines.append(f"{i}return None")       
@@ -16,7 +16,10 @@ def rules(tree, pred_dims, sf=3, out_name=None):
             _recurse(node.left, depth+1)
             lines.append(f"{i}else:")
             _recurse(node.right, depth+1)
-        else: lines.append(f"{i}return {round_sf(node.mean[pred_dims], sf)} (n={node.num_samples}, std={round_sf(np.sqrt(np.diag(node.cov)[pred_dims]), sf)})")
+        else: 
+            if pred_dims:
+                lines.append(f"{i}return {round_sf(node.mean[pred_dims], sf)} (n={node.num_samples}, std={round_sf(np.sqrt(np.diag(node.cov)[pred_dims]), sf)})")
+            else: lines.append(f"{i}return")
     _recurse(tree.root)
     if out_name is not None:  # If out_name specified, write
         with open(out_name+".py", "w", encoding="utf-8") as f:

@@ -1,5 +1,6 @@
 from .utils import *
 import numpy as np
+import bisect
 from sklearn.decomposition import PCA
 
 class Node:
@@ -7,26 +8,35 @@ class Node:
     Class for a node, which is characterised by its members (sorted_indices of data from source), 
     mean, covariance matrix and minimal and maximal bounding boxes. 
     """
-    def __init__(self, source, sorted_indices, parent_split_info=None):
+    def __init__(self, source, sorted_indices, bb_max=None, parent_split_info=None):
         self.source = source # To refer back to the source class.
         self.sorted_indices = sorted_indices
         self.num_samples, num_dims = sorted_indices.shape
         X = self.source.data[sorted_indices[:,0]] # Won't actually store this; order doesn't matter.
-        self.mean = np.mean(X, axis=0)
-        if self.num_samples > 1: 
-              self.cov = np.cov(X, rowvar=False, ddof=0) # ddof=0 overrides bias correction.
-        else: self.cov = np.zeros((num_dims, num_dims))
+        if self.num_samples > 0: 
+            self.mean = np.mean(X, axis=0)
+            # Minimal bounding box is defined by the samples.
+            self.bb_min = np.array([np.nanmin(X, axis=0), np.nanmax(X, axis=0)]).T
+            if self.num_samples > 1:
+                self.cov = np.cov(X, rowvar=False, ddof=0) # ddof=0 overrides bias correction.                
+        else: 
+            self.mean = np.full(num_dims, np.nan)
+            self.bb_min = np.full((num_dims, 2), np.nan)
+        try: self.cov
+        except: self.cov = np.zeros((num_dims, num_dims))
         self.cov_sum = self.cov * self.num_samples
         self.var_sum = np.diag(self.cov_sum)
-        # Minimal bounding box.
-        self.bb_min = np.array([np.min(X, axis=0), np.max(X, axis=0)]).T
-        # If this node has a parent, use the provided split information to create maximal bounding box.
-        if parent_split_info is not None:
-            self.bb_max, d, lu, v = parent_split_info # Start by copying parent bb_max.
-            self.bb_max[d,lu] = v # Then update one boundary.
+        if bb_max:
+            # If a maximal bounding box has been provided, just use that.
+            self.bb_max = bb_max
+        elif parent_split_info:
+            # If this node has a parent, use the provided split information to create bb_max.
+            self.bb_max, d, lu, v = parent_split_info; self.bb_max[d,lu] = v 
         else:
-            self.bb_max = np.array([[-np.inf, np.inf] for _ in range(num_dims)]) # If no parent, bb_max is infinite.
-        self.split_dim, self.split_threshold, self.left, self.right, self.gains = None, None, None, None, {} # To be replaced if and when the node is split.
+            # Otherwise, bb_max is infinite.
+            self.bb_max = np.array([[-np.inf, np.inf] for _ in range(num_dims)]) 
+        # These attributes are defined if and when the node is split.
+        self.split_dim, self.split_threshold, self.left, self.right, self.gains = None, None, None, None, {} 
     
     def attr(self, attr):
         """
@@ -65,9 +75,22 @@ class Node:
         # Return components scaled back by standard deviation, and explained variance ratio.
         return (pca.components_ * std), pca.explained_variance_ratio_
     
+    def _do_manual_split(self, split_dim, split_threshold):
+        """
+        Split using a manually-defined split_dim and split_threshold.
+        """
+        if not(self.bb_max[split_dim][0] <= split_threshold <= self.bb_max[split_dim][1]): return False
+        self.split_dim, self.split_threshold = split_dim, split_threshold
+        data = self.source.data[self.sorted_indices[:,self.split_dim], self.split_dim]
+        split_index = bisect.bisect(data, self.split_threshold)
+        left, right = split_sorted_indices(self.sorted_indices, self.split_dim, split_index)
+        self.left = Node(self.source, left, parent_split_info=(self.bb_max.copy(), self.split_dim, 1, self.split_threshold))
+        self.right = Node(self.source, right, parent_split_info=(self.bb_max.copy(), self.split_dim, 0, self.split_threshold))
+        return True
+
     def _do_greedy_split(self, split_dims, eval_dims, corr=False, one_sided=False, pop_power=.5):
         """
-        xxx
+        Find and implement the greediest split given split_dims and eval_dims.
         """
         splits, extra = self._find_greedy_splits(split_dims, eval_dims, corr, one_sided, pop_power)
         # Sort by quality and choose the single best.
@@ -83,9 +106,9 @@ class Node:
             else:
                 self.gains['immediate'] = extra
             if (not one_sided) or (not do_right):
-                self.left = Node(self.source, left, (self.bb_max.copy(), split_dim, 1, self.split_threshold))
+                self.left = Node(self.source, left, parent_split_info=(self.bb_max.copy(), split_dim, 1, self.split_threshold))
             if (not one_sided) or do_right:
-                self.right = Node(self.source, right, (self.bb_max.copy(), split_dim, 0, self.split_threshold))
+                self.right = Node(self.source, right, parent_split_info=(self.bb_max.copy(), split_dim, 0, self.split_threshold))
             return True, extra
         return False, extra
 

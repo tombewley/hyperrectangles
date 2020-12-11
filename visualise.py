@@ -146,7 +146,7 @@ def show_difference_rectangles(tree_a, tree_b, attribute, max_depth=np.inf, maxi
     lims_and_values_to_rectangles(ax, intersections, values=diffs, cmap=_cmap(attribute), cmap_lims=cmap_lims, edge_colour=edge_colour)    
     return ax
 
-def lims_and_values_to_rectangles(ax, lims, offsets=None, values=None, cmap=None, cmap_lims=None, fill_colour=None, edge_colour=None):
+def lims_and_values_to_rectangles(ax, lims, offsets=None, values=[None], cmap=None, cmap_lims=None, fill_colour=None, edge_colour=None):
     """xxx"""
     if values != [None]:
         # Compute fill colour.

@@ -1,1 +1,1 @@
-# hypertree
+# hyperrectangles
