@@ -72,32 +72,40 @@ def show_lines(tree, attributes, max_depth=np.inf, maximise=False, show_spread=F
     ax.legend()
     return ax
 
-def show_rectangles(tree, vis_dims=None, attribute=None, 
+def show_rectangles(model, vis_dims=None, attribute=None, 
                     slice_dict={}, max_depth=np.inf, maximise=False, project_resolution=None,
-                    cmap_lims=None, fill_colour=None, edge_colour=None, ax=None):
+                    vis_lims=None, cmap_lims=None, fill_colour=None, edge_colour=None, ax=None):
     """
-    Compute the rectangular projections of nodes from tree onto vis_dims, and colour according to attribute.
+    Compute the rectangular projections of nodes from model onto vis_dims, and colour according to attribute.
     Where multiple projections overlap, compute a marginal value using the weighted_average function from utils.
-    """
-    if vis_dims is None:
-        assert len(tree.split_dims) == 2, 'Can only leave vis_dims unspecified if |tree.split_dims| = 2.'
-        vis_dims = tree.split_dims
-    else:
+    """       
+    if vis_dims is not None:
         # Allow dim_names to be specified instead of numbers.
-        if type(vis_dims[0]) == str: vis_dims = [tree.source.dim_names.index(v) for v in vis_dims] 
+        if type(vis_dims[0]) == str: vis_dims = [model.source.dim_names.index(v) for v in vis_dims] 
+    else: vis_dims = model.split_dims # Will fail if not a tree.
+    assert len(vis_dims) == 2, "Must have |vis_dims| = 2."
+    if vis_lims is not None: vis_lims = np.array(vis_lims) # Manually specify vis_lims.
+    else: vis_lims = model.root.bb_min[vis_dims] # Otherwise use bounding box of root (for tree).
     # Set up axes.
-    ax = _ax_setup(ax, tree, vis_dims, attribute=attribute, slice_dict=slice_dict)
+    ax = _ax_setup(ax, model, vis_dims, attribute=attribute, slice_dict=slice_dict)
     # Collect the list of nodes to show.
-    if slice_dict != {}: slice_list = dim_dict_to_list(slice_dict, tree.source.dim_names)
+    if slice_dict != {}: slice_list = dim_dict_to_list(slice_dict, model.source.dim_names)
     else: slice_list = slice_dict
-    nodes = list(tree.propagate(slice_list, mode=('max' if maximise else 'min'), max_depth=max_depth))
-    if not(np.array_equal(vis_dims, tree.split_dims)) and attribute is not None:
-        # If require projection.
-        # TODO: Can avoid this if conditioned along (split_dims - vis_dims).
+    nodes = list(model.propagate(slice_list, mode=('max' if maximise else 'min'), max_depth=max_depth))        
+    try:
+        # Check if can avoid doing projection.
+        # TODO: This doesn't catch cases when nodes are non-overlapping despite vis_dims != split_dims.
+        try: np.array_equal(vis_dims, model.split_dims) # Will fail if not a tree.
+        except: assert not(attribute) 
+        values = list(gather_attributes(nodes, [attribute])[0])
+        bbs = [(bb_clip(node.bb_max[vis_dims], vis_lims) if maximise 
+                else node.bb_min[vis_dims]) for node in nodes]
+    except:
+        # Otherwise, projection required.
         assert attribute[0] == 'mean', 'Can only project mean attributes.'
         projections = project(nodes, vis_dims, maximise=maximise, resolution=project_resolution)
         colour_dim = attribute[1]
-        if type(colour_dim) == str: colour_dim = tree.source.dim_names.index(colour_dim)
+        if type(colour_dim) == str: colour_dim = model.source.dim_names.index(colour_dim)
         # Ensure slice_dict is factored into the weighting.
         weight_dims = vis_dims.copy()
         if slice_dict != {}:
@@ -107,12 +115,7 @@ def show_rectangles(tree, vis_dims=None, attribute=None,
                     for i in range(len(projections)):
                         projections[i][0] = np.vstack((projections[i][0], s))
         values = [weighted_average(leaves, colour_dim, bb, weight_dims) for bb,leaves in projections]
-        bbs = [bb_clip(bb[:len(vis_dims)], tree.root.bb_min[vis_dims]) for bb,_ in projections]
-    else:
-        # If don't require projection.
-        values = list(gather_attributes(nodes, [attribute])[0])
-        bbs = [(bb_clip(node.bb_max[vis_dims], tree.root.bb_min[vis_dims]) if maximise 
-                else node.bb_min[vis_dims]) for node in nodes]
+        bbs = [bb_clip(bb[:len(vis_dims)], vis_lims) for bb,_ in projections]
     # Create rectangles.
     lims_and_values_to_rectangles(ax, bbs, 
         values=values, cmap=_cmap(attribute), cmap_lims=cmap_lims, 
@@ -148,7 +151,9 @@ def show_difference_rectangles(tree_a, tree_b, attribute, max_depth=np.inf, maxi
     return ax
 
 def lims_and_values_to_rectangles(ax, lims, offsets=None, values=[None], cmap=None, cmap_lims=None, fill_colour=None, edge_colour=None):
-    """xxx"""
+    """
+    Assemble a rectangle visualisation.
+    """
     if values != [None]:
         # Compute fill colour.
         if cmap_lims is None: mn, mx = np.min(values), np.max(values)
@@ -187,7 +192,7 @@ def show_derivatives(tree, max_depth=np.inf, scale=1, pivot='tail', ax=None):
 
 def show_transition_graph(model, layout_dims=None, highlight_path=None, alpha=False, ax=None):
     """
-    xxx
+    Visualise transition graph using networkx.
     """
     assert model.transition_graph is not None
     G = model.transition_graph

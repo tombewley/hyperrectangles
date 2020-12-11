@@ -11,12 +11,13 @@ class Tree(Model):
         self.root, self.source, self.split_dims, self.eval_dims = root, root.source, split_dims, eval_dims
         self.leaves = self._get_leaves() # Collect the list of leaves.
 
+    def __repr__(self): return f"{self.name}: tree model with {len(self.leaves)} leaves"
+
     def propagate(self, x, contain=False, mode='min', max_depth=np.inf):
         """
         Overwrites Model.propagate using a more efficient tree-specific method.
         """
-        # Convert dictionary representation to list.
-        if type(x) == dict: x = dim_dict_to_list(x, self.source.dim_names)
+        x = dim_dict_to_list(x, self.source.dim_names) # Convert dictionary representation to list if needed.
         def _recurse(node, depth=0):
             if node is None: return set()
             if node.split_dim is None or depth >= max_depth: 
@@ -44,6 +45,13 @@ class Tree(Model):
                     else: right = set()
                     return left | right
         return _recurse(self.root)
+
+    def populate(self, sorted_indices=None): 
+        """
+        Doesn't have to be too different to the method for Model, but can take advantage of the fact
+        each node only needs to consider the indices of its parent.
+        """
+        raise NotImplementedError() 
 
     def dca_subtree(self, name, nodes): 
         """ 

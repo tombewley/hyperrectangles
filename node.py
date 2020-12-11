@@ -5,15 +5,33 @@ from sklearn.decomposition import PCA
 
 class Node:
     """
-    Class for a node, which is characterised by its members (sorted_indices of data from source), 
+    Class for a node, which is characterised by its samples (sorted_indices of data from source), 
     mean, covariance matrix and minimal and maximal bounding boxes. 
     """
-    def __init__(self, source, sorted_indices, bb_max=None, parent_split_info=None):
-        self.source = source # To refer back to the source class.
+    def __init__(self, source, sorted_indices=None, bb_max=None, parent_split_info=None, meta={}):
+        self.source = source # To refer back to the source class.        
+        # If a maximal bounding box has been provided, just use that.
+        if bb_max: self.bb_max = np.array(bb_max)
+        # If this node has a parent, use the provided split information to create bb_max.
+        elif parent_split_info: self.bb_max, d, lu, v = parent_split_info; self.bb_max[d,lu] = v 
+        # Otherwise, bb_max is infinite.
+        else: self.bb_max = np.array([[-np.inf, np.inf] for _ in self.source.dim_names]) 
+        # These attributes are defined if and when the node is split.
+        self.split_dim, self.split_threshold, self.left, self.right, self.gains = None, None, None, None, {} 
+        # This dictionary can be used to store miscellaneous meta information about this node.
+        self.meta = meta
+        # Populate with samples if provided.
+        self.populate(sorted_indices)
+
+    def populate(self, sorted_indices):
+        """
+        Populate the node with samples and compute statistics.
+        """
+        if sorted_indices is None: sorted_indices = np.empty((0, len(self.source.dim_names)))
         self.sorted_indices = sorted_indices
         self.num_samples, num_dims = sorted_indices.shape
-        X = self.source.data[sorted_indices[:,0]] # Won't actually store this; order doesn't matter.
         if self.num_samples > 0: 
+            X = self.source.data[sorted_indices[:,0]] # Won't actually store this; order doesn't matter.
             self.mean = np.mean(X, axis=0)
             # Minimal bounding box is defined by the samples.
             self.bb_min = np.array([np.nanmin(X, axis=0), np.nanmax(X, axis=0)]).T
@@ -26,20 +44,9 @@ class Node:
         except: self.cov = np.zeros((num_dims, num_dims))
         self.cov_sum = self.cov * self.num_samples
         self.var_sum = np.diag(self.cov_sum)
-        if bb_max:
-            # If a maximal bounding box has been provided, just use that.
-            self.bb_max = bb_max
-        elif parent_split_info:
-            # If this node has a parent, use the provided split information to create bb_max.
-            self.bb_max, d, lu, v = parent_split_info; self.bb_max[d,lu] = v 
-        else:
-            # Otherwise, bb_max is infinite.
-            self.bb_max = np.array([[-np.inf, np.inf] for _ in range(num_dims)]) 
-        # These attributes are defined if and when the node is split.
-        self.split_dim, self.split_threshold, self.left, self.right, self.gains = None, None, None, None, {} 
-        # This dictionary can be used to store miscellaneous meta information about this node.
-        self.meta = {}
 
+    def __repr__(self): return f"Node with {self.num_samples} samples, split_dim={self.split_dim}"
+    
     def attr(self, attr):
         """
         Compute a statistical attribute for this node.

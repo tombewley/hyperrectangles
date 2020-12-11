@@ -1,5 +1,9 @@
 import numpy as np
+import bisect
 from itertools import product
+
+# ===============================
+# OPERATIONS ON SAMPLE STATISTICS
 
 def increment_mean_and_var_sum(n, mean, var_sum, x, sign):
     """
@@ -32,6 +36,9 @@ def cov_to_r2(cov):
     r2[cov == 0] = 0
     return np.triu(r2, k=1)
 
+# ===============================
+# OPERATIONS ON SORTED INDICES
+
 def split_sorted_indices(sorted_indices, split_dim, split_index):
     """
     Split a sorted_indices array at a point along one of the dimensions,
@@ -46,6 +53,21 @@ def split_sorted_indices(sorted_indices, split_dim, split_index):
         right[other_dim] = sorted_indices[np.logical_not(put_left), other_dim]
     return np.array(left).T, np.array(right).T
 
+def bb_filter_sorted_indices(source, sorted_indices, bb):
+    """
+    Making use of the split_sorted_indices function, filter sorted_indices using a bb.
+    Allow bb to be specified as a dict.
+    """
+    for split_dim, lims in enumerate(dim_dict_to_list(bb, source.dim_names)):
+        if lims is None: continue # If nothing specified for this lim.
+        for lu, lim in enumerate(lims):
+            data = source.data[sorted_indices[:,split_dim], split_dim] # Must reselect each time.
+            split_index = bisect.bisect(data, lim)
+            left, right = split_sorted_indices(sorted_indices, split_dim, split_index)
+            if lu == 0: sorted_indices = right
+            else: sorted_indices = left
+    return sorted_indices
+
 def subsample_sorted_indices(sorted_indices, size):
     """
     Subsample a sorted_indices array, preserving order.
@@ -59,37 +81,8 @@ def subsample_sorted_indices(sorted_indices, size):
         subset[dim] = sorted_indices[keep, dim]
     return np.array(subset).T
 
-def dim_dict_to_list(dim_dict, dim_names):
-    """
-    Convert a convenient dictionary representation of per-dimension information
-    to a list with Nones as placeholders, which can be used in calculations.
-    """
-    dim_list = [None for _ in dim_names]
-    for dim, value in dim_dict.items():
-        dim_list[dim_names.index(dim)] = value
-    return dim_list
-
-def round_sf(X, sf):
-    """
-    Round a float to the given number of significant figures.
-    """
-    def _r(x): return np.format_float_positional(x, precision=sf, unique=False, fractional=False, trim='k')
-    try: return _r(X) # For single value.
-    except: return f"({', '.join(_r(x) for x in X)})" # For iterable.
-
-def gather_attributes(nodes, attributes):
-    """
-    Gather a set of attributes from each node in the provided list.
-    """
-    results = []
-    for attr in attributes:
-        if attr is None: results.append([None])
-        else:
-            # Allow dim_name to be specified instead of number.
-            if type(attr[1]) == str: dim = nodes[0].source.dim_names.index(attr[1])
-            if len(attr) == 3 and type(attr[2]) == str: dim2 = nodes[0].source.dim_names.index(attr[2])
-            results.append(np.array([node.attr(attr) for node in nodes]))
-    return results
+# ===============================
+# OPERATIONS ON BOUNDING BOXES
 
 def bb_intersect(bb_a, bb_b):
     """
@@ -218,3 +211,42 @@ def weighted_average(nodes, dims, bb=None, intersect_dims=None):
             r.append(np.prod(ratios))
         w = w * r
     return np.average([node.mean[dims] for node in nodes], axis=0, weights=w)
+    
+# ===============================
+# OTHER
+
+def dim_dict_to_list(dim_dict, dim_names, placeholder=None, duplicate_singletons=False):
+    """
+    Convert a convenient dictionary representation of per-dimension information
+    to a list with placeholders, which can be used in calculations.
+    """
+    if type(dim_dict) != dict: return dim_dict # If not a dict, return unchanged.
+    dim_list = [placeholder for _ in dim_names]
+    for dim, value in dim_dict.items():
+        if duplicate_singletons:
+            try: len(value)
+            except: value = [value, value]
+        dim_list[dim_names.index(dim)] = value
+    return dim_list
+
+def round_sf(X, sf):
+    """
+    Round a float to the given number of significant figures.
+    """
+    def _r(x): return np.format_float_positional(x, precision=sf, unique=False, fractional=False, trim='k')
+    try: return _r(X) # For single value.
+    except: return f"({', '.join(_r(x) for x in X)})" # For iterable.
+
+def gather_attributes(nodes, attributes):
+    """
+    Gather a set of attributes from each node in the provided list.
+    """
+    results = []
+    for attr in attributes:
+        if attr is None: results.append([None])
+        else:
+            # Allow dim_name to be specified instead of number.
+            if type(attr[1]) == str: dim = nodes[0].source.dim_names.index(attr[1])
+            if len(attr) == 3 and type(attr[2]) == str: dim2 = nodes[0].source.dim_names.index(attr[2])
+            results.append(np.array([node.attr(attr) for node in nodes]))
+    return results

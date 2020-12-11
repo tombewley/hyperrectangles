@@ -1,7 +1,8 @@
-from .node import *
-from .tree import *
+from .node import Node
+from .model import Model
+from .tree import Tree
+from .utils import *
 import numpy as np
-import bisect
 from tqdm import tqdm
 
 class Source:
@@ -23,20 +24,12 @@ class Source:
     # Dunder/magic methods.
     def __getitem__(self, name): return self.models[name]
 
-    def subset(self, bb_dict=None, bb_array=None, subsample=None):
+    def subset(self, bb=None, subsample=None):
         """
-        Select a subset of the data by per-dimension filtering and/or random subsampling.
+        Retrieve a subset of the data by per-dimension filtering and/or random subsampling.
         """
-        sorted_indices = self.all_sorted_indices.copy()
-        if bb_dict is not None:
-            for split_dim, lims in enumerate(dim_dict_to_list(bb_dict, self.dim_names)):
-                if lims is None: continue # If nothing specified for this lim.
-                for lu, lim in enumerate(lims):
-                    data = self.data[sorted_indices[:,split_dim], split_dim] # Must reselect each time.
-                    split_index = bisect.bisect(data, lim)
-                    left, right = split_sorted_indices(sorted_indices, split_dim, split_index)
-                    if lu == 0: sorted_indices = right
-                    else: sorted_indices = left
+        sorted_indices = self.all_sorted_indices
+        if bb is not None: sorted_indices = bb_filter_sorted_indices(self, sorted_indices, bb)
         return subsample_sorted_indices(sorted_indices, subsample)
 
     def tree_depth_first(self, name, split_dims, eval_dims, sorted_indices=None, max_depth=np.inf, 
@@ -81,19 +74,34 @@ class Source:
         self.models[name] = Tree(name, root, split_dims, eval_dims)
         return self.models[name]
 
+    def model_from_dict(self, name, d):
+        """
+        Create a flat model from a dictionary object.
+        """
+        leaves = []
+        for n in d:
+            # Get the bounding box in the correct form. 
+            bb_max = dim_dict_to_list(d[n]["bb_max"], self.dim_names, 
+                     placeholder=[-np.inf,np.inf], duplicate_singletons=True)
+            # Add a new leaf.
+            leaves.append(Node(self, bb_max=bb_max, meta=d[n]["meta"]))
+
+        self.models[name] = Model(name, leaves)
+        return self.models[name]
+    
     def tree_from_dict(self, name, d): 
         """
         Create a tree from a dictionary object.
         """
         def _recurse(node, n): 
             if n in d:
-                if not node._do_manual_split(d[n]['split_dim'], d[n]['split_threshold']):
+                if not node._do_manual_split(d[n]["split_dim"], d[n]["split_threshold"]):
                     raise ValueError(f"Invalid split threshold for node {n}: \"{d[n]}\".")
-                _recurse(node.left, d[n]['left'])
-                _recurse(node.right, d[n]['right'])
+                _recurse(node.left, d[n]["left"])
+                _recurse(node.right, d[n]["right"])
         root = Node(self, self.all_sorted_indices)
         _recurse(root, 1) # Root node must have key of 1 in dict.
-        split_dims, eval_dims = list(set(v['split_dim'] for v in d.values())), [] # NOTE: No eval dims.
+        split_dims, eval_dims = list(set(v["split_dim"] for v in d.values())), [] # NOTE: No eval dims.
         self.models[name] = Tree(name, root, split_dims, eval_dims)
         return self.models[name]
 

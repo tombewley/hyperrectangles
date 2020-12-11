@@ -7,7 +7,7 @@ from tqdm import tqdm
 
 class Model:
     """
-    Class for a model, which is a wrapper for a flat set of leaves. 
+    Class for a model, which is a wrapper for a flat collection of leaves. 
     Tree inherits from here, overwrites some methods and adds new ones.
     """
     def __init__(self, name, leaves):
@@ -16,11 +16,21 @@ class Model:
         # These attributes are computed on request.
         self.transition_matrix, self.transition_graph = None, None 
     
+    def __repr__(self): return f"{self.name}: flat model with {len(self.leaves)} leaves"
+
     def propagate(self, x, contain=False, mode='min', max_depth=np.inf):
         """
         Iterate through all leaves and check whether an input x is inside.
         """
         return {leaf for leaf in self.leaves if is_x_in_node(leaf, x, contain, mode)}
+
+    def populate(self, sorted_indices=None):
+        """
+        Populate all leaves in the model with data from a sorted_indices array.
+        """
+        if sorted_indices is None: sorted_indices = self.source.all_sorted_indices
+        for leaf in self.leaves:
+            leaf.populate(bb_filter_sorted_indices(self.source, sorted_indices, leaf.bb_max))
 
     def predict(self, X, dims, maximise=False): 
         """
@@ -28,7 +38,7 @@ class Model:
         """
         # Allow dim_names to be specified instead of numbers.
         if type(dims[0]) == str: dims = [self.source.dim_names.index(d) for d in dims]
-        # Check if input has been provided in dictionary form.
+        # Check if input has been provided in dictionary form (assume X[0] has the same form as the rest).
         if type(X) == dict: X = [X]
         if type(X[0]) == dict: X = [dim_dict_to_list(x, self.source.dim_names) for x in X]
         # Check if just one sample has been provided.
@@ -60,7 +70,7 @@ class Model:
         """
         Return a list of minimal counterfactuals from x given foil, sorted by the provided method.
         """
-        foil = dim_dict_to_list(foil, self.source.dim_names)
+        foil = dim_dict_to_list(foil, self.source.dim_names) # Convert dictionary representation to list if needed.
         if type(delta_dims[0]) == str: delta_dims = [self.source.dim_names.index(d) for d in delta_dims]
         if fixed_dims and type(fixed_dims[0]) == str: fixed_dims = [self.source.dim_names.index(d) for d in fixed_dims]
         # Marginalise out all non-fixed dims in x.
@@ -121,7 +131,10 @@ class Model:
         G = nx.DiGraph()
         # Create nodes: one for each leaf plus initial and terminal.
         nodes = self.leaves + ['I', 'T']
-        G.add_nodes_from([(l, {'idx':i if i < n else l}) for i, l in enumerate(nodes)])
+        G.add_nodes_from([(l, 
+                         # For attributes, use the node's meta dictionary and add an index.
+                         dict([('idx',i)] + list(l.meta.items())) if i < n else {'idx':l}) 
+                         for i, l in enumerate(nodes)])
         # Create edges.
         for i, node in enumerate(G.nodes): 
             count_sum = self.transition_matrix[i].sum()
