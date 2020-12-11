@@ -100,6 +100,32 @@ def bb_intersect(bb_a, bb_b):
     if np.any(u-l < 0): return None # Return None if no overlap.
     return np.array([l, u]).T
 
+def is_x_in_node(node, x, contain, mode):
+    """
+    Check if an input x is inside a node. Each element of x can be None (ignore),
+    a scalar (treat as in regular prediction), or a (min, max) interval.
+    """
+    if mode in ('min', 'max'): 
+        # If mode is min or max, check whether x intersects node.bb_min or node.bb_max.
+        for xd, lims in zip(x, node.bb_max if mode == 'max' else node.bb_min):
+            try:
+                if xd is None or np.isnan(xd): continue # For None.
+                if not(xd >= lims[0] and xd <= lims[1]): return False # For scalar.
+            except:
+                compare = [[i >= l for i in xd] for l in lims] # For (min, max) interval.
+                if (not(compare[0][0]) or compare[1][1]) if contain else (not(compare[0][1]) or compare[1][0]):
+                    return False
+    elif mode == 'mean':
+        # If mode is mean, check whether x contains node.mean.
+        for xd, mean in zip(x, node.mean):
+            try: 
+                if xd is None or np.isnan(xd): continue # For None.
+                if not xd == mean: return False # For scalar.
+            except:
+                if not (xd[0] <= mean <= xd[1]): return False # For (min, max) interval.
+    else: raise ValueError()
+    return True
+
 def bb_clip(bb, clip):
     """
     Clip a bounding box using another.
@@ -180,7 +206,7 @@ def weighted_average(nodes, dims, bb=None, intersect_dims=None):
     NOTE: This encodes a strong assumption of uniform data distribution within node.bb_min.
     """
     nodes = list(nodes) # Need to have ordering.
-    w = np.array([n.num_samples for n in nodes])
+    w = np.array([node.num_samples for node in nodes])
     if bb is not None:
         r = []
         for node in nodes:
@@ -191,4 +217,4 @@ def weighted_average(nodes, dims, bb=None, intersect_dims=None):
             ratios = (inte[:,1] - inte[:,0]) / node_bb_width
             r.append(np.prod(ratios))
         w = w * r
-    return np.average([n.mean[dims] for n in nodes], axis=0, weights=w)
+    return np.average([node.mean[dims] for node in nodes], axis=0, weights=w)

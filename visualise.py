@@ -1,6 +1,7 @@
 from .utils import *
 import numpy as np
 import matplotlib as mpl
+import matplotlib.pyplot as plt
 import mpl_toolkits.mplot3d.art3d as art3d
 import networkx as nx
 
@@ -17,7 +18,7 @@ def show_samples(node, vis_dims, colour_dim=None, alpha=None, spark=False, subsa
     lims = [[X[:,0].min(), X[:,0].max()], [X[:,1].min(), X[:,1].max()]]
     if ax is None: 
         if spark: ax = _ax_spark(ax, lims)
-        else: _, ax = mpl.pyplot.subplots()#figsize=(8,8))
+        else: _, ax = plt.subplots()#figsize=(8,8))
     # Automatically calculate alpha.
     if alpha is None: alpha = 1 / len(X)**0.5
     if spark:
@@ -48,11 +49,11 @@ def show_lines(tree, attributes, max_depth=np.inf, maximise=False, show_spread=F
     nodes = list(tree.propagate({}, mode=('max' if maximise else 'min'), max_depth=np.inf))
     values = gather_attributes(nodes, attributes)
     # Create new axes if needed.
-    if ax is None: _, ax = mpl.pyplot.subplots()#figsize=(9,8))
+    if ax is None: _, ax = plt.subplots()#figsize=(9,8))
     split_dim_name = tree.root.source.dim_names[tree.split_dims[0]]
     ax.set_xlabel(split_dim_name)
     # Colour cycle.
-    colours = mpl.pyplot.rcParams['axes.prop_cycle'].by_key()['color']
+    colours = plt.rcParams['axes.prop_cycle'].by_key()['color']
     for i, attr in enumerate(attributes[:num_attributes]):
         for n, (node, value) in enumerate(zip(nodes, values[i])):
             mn, mx = node.bb_max[tree.split_dims[0]] if maximise else node.bb_min[tree.split_dims[0]]
@@ -179,17 +180,17 @@ def show_derivatives(tree, max_depth=np.inf, scale=1, pivot='tail', ax=None):
     attributes = [('mean',s) for s in vis_dim_names] + [('mean',f'd_{s}') for s in vis_dim_names]
     values = gather_attributes(list(tree.propagate({}, mode=('max' if maximise else 'min'), max_depth=max_depth)), attributes)
     # Create arrows centred at means.    
-    mpl.pyplot.quiver(values[0], values[1], values[2], values[3], 
+    plt.quiver(values[0], values[1], values[2], values[3], 
                       pivot=pivot, angles='xy', scale_units='xy', units='inches', 
                       color='k', scale=1/scale, width=0.02, minshaft=1)
     return ax
 
-def show_transition_graph(tree, layout_dims=None, highlight_path=None, alpha=False, ax=None):
+def show_transition_graph(model, layout_dims=None, highlight_path=None, alpha=False, ax=None):
     """
     xxx
     """
-    assert tree.transition_graph is not None
-    G = tree.transition_graph
+    assert model.transition_graph is not None
+    G = model.transition_graph
     if layout_dims is not None:
         assert len(layout_dims) == 2 
         # Allow dim_names to be specified instead of numbers.
@@ -206,9 +207,9 @@ def show_transition_graph(tree, layout_dims=None, highlight_path=None, alpha=Fal
     else:
         # If no layout_dims, arrange using spring forces.
         pos = nx.spring_layout(G)
-        if ax is None: _, ax = mpl.pyplot.subplots()#figsize=(12,12))    
+        if ax is None: _, ax = plt.subplots()#figsize=(12,12))    
     # Draw nodes and labels.
-    nx.draw_networkx_nodes(G, pos=pos, node_color=["#a8caff" for _ in range(len(tree.leaves))] + ["#74ad83","#e37b40"])
+    nx.draw_networkx_nodes(G, pos=pos, node_color=["#a8caff" for _ in range(len(model.leaves))] + ["#74ad83","#e37b40"])
     nx.draw_networkx_labels(G, pos=pos, labels=nx.get_node_attributes(G, "idx"))
     # If highlight_path specified, highlight it in a different colour.
     if highlight_path is not None:
@@ -261,7 +262,7 @@ def show_shap_dependence(tree, node, wrt_dim, shap_dim, vis_dim=None, deinteract
 
     if colour_dim is not None: c = X[:,colour_dim]
     # Set up figure.
-    _, ax = mpl.pyplot.subplots(figsize=(12/5,12/5))
+    _, ax = plt.subplots(figsize=(12/5,12/5))
     ax.set_xlabel(tree.root.source.dim_names[vis_dim])    
     ax.set_ylabel(f'SHAP for {tree.root.source.dim_names[shap_dim]} w.r.t. {tree.root.source.dim_names[wrt_dim]}')
     if colour_dim is None: colours = colour
@@ -279,7 +280,7 @@ def show_shap_dependence(tree, node, wrt_dim, shap_dim, vis_dim=None, deinteract
     return ax
 
 def _ax_setup(ax, tree, vis_dims, attribute=None, diff=False, tree_b=None, derivs=False, slice_dict={}):
-    if ax is None: _, ax = mpl.pyplot.subplots(figsize=(3,12/5))
+    if ax is None: _, ax = plt.subplots(figsize=(3,12/5))
     vis_dim_names = [tree.root.source.dim_names[v] for v in vis_dims]
     ax.set_xlabel(vis_dim_names[0]); ax.set_ylabel(vis_dim_names[1])
     title = tree.name
@@ -291,7 +292,7 @@ def _ax_setup(ax, tree, vis_dims, attribute=None, diff=False, tree_b=None, deriv
     return ax
 
 def _ax_spark(ax, lims):
-    if ax is None: _, ax = mpl.pyplot.subplots(figsize=(1.2,1.3))
+    if ax is None: _, ax = plt.subplots(figsize=(1.2,1.3))
     ax.tick_params(axis='both', bottom=True, left=True, top=False, right=False, labelsize=8, pad=2)
     ax.spines['top'].set_visible(False)
     ax.spines['right'].set_visible(False)
