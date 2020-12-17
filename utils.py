@@ -58,7 +58,7 @@ def bb_filter_sorted_indices(source, sorted_indices, bb):
     Making use of the split_sorted_indices function, filter sorted_indices using a bb.
     Allow bb to be specified as a dict.
     """
-    for split_dim, lims in enumerate(dim_dict_to_list(bb, source.dim_names)):
+    for split_dim, lims in enumerate(source.listify(bb)):
         if lims is None: continue # If nothing specified for this lim.
         for lu, lim in enumerate(lims):
             data = source.data[sorted_indices[:,split_dim], split_dim] # Must reselect each time.
@@ -93,32 +93,6 @@ def bb_intersect(bb_a, bb_b):
     if np.any(u-l < 0): return None # Return None if no overlap.
     return np.array([l, u]).T
 
-def is_x_in_node(node, x, contain, mode):
-    """
-    Check if an input x is inside a node. Each element of x can be None (ignore),
-    a scalar (treat as in regular prediction), or a (min, max) interval.
-    """
-    if mode in ('min', 'max'): 
-        # If mode is min or max, check whether x intersects node.bb_min or node.bb_max.
-        for xd, lims in zip(x, node.bb_max if mode == 'max' else node.bb_min):
-            try:
-                if xd is None or np.isnan(xd): continue # For None.
-                if not(xd >= lims[0] and xd <= lims[1]): return False # For scalar.
-            except:
-                compare = [[i >= l for i in xd] for l in lims] # For (min, max) interval.
-                if (not(compare[0][0]) or compare[1][1]) if contain else (not(compare[0][1]) or compare[1][0]):
-                    return False
-    elif mode == 'mean':
-        # If mode is mean, check whether x contains node.mean.
-        for xd, mean in zip(x, node.mean):
-            try: 
-                if xd is None or np.isnan(xd): continue # For None.
-                if not xd == mean: return False # For scalar.
-            except:
-                if not (xd[0] <= mean <= xd[1]): return False # For (min, max) interval.
-    else: raise ValueError()
-    return True
-
 def bb_clip(bb, clip):
     """
     Clip a bounding box using another.
@@ -140,7 +114,7 @@ def project(nodes, dims, maximise=False, resolution=None):
     """
     Project a list of nodes onto dims and list all the regions of intersection.
     """
-    if type(dims[0]) == str: dims = [nodes[0].source.dim_names.index(d) for d in dims]
+    dims = nodes[0].source.idxify(dims)
     # List all the unique thresholds along each dim.
     thresholds = [{} for _ in dims]    
     for node in nodes:
@@ -191,6 +165,27 @@ def project(nodes, dims, maximise=False, resolution=None):
             if len(overlapping_nodes) > 0: projections.append([bb, overlapping_nodes])
     print('Projection complete')
     return projections
+    
+# ===============================
+# OTHER
+
+def round_sf(X, sf):
+    """
+    Round a float to the given number of significant figures.
+    """
+    def _r(x): return np.format_float_positional(x, precision=sf, unique=False, fractional=False, trim='k')
+    try: return _r(X) # For single value.
+    except: return f"({', '.join(_r(x) for x in X)})" # For iterable.
+
+def gather(nodes, *attributes):
+    """
+    Gather attributes from each node in the provided list.
+    """
+    results = []
+    for attr in attributes:
+        if attr is None: results.append([None])
+        else: results.append([node[attr] for node in nodes])
+    return results if len(results) > 1 else results[0]
 
 def weighted_average(nodes, dims, bb=None, intersect_dims=None):
     """
@@ -214,42 +209,3 @@ def weighted_average(nodes, dims, bb=None, intersect_dims=None):
             r.append(np.prod(ratios))
         w = w * r
     return np.average([node.mean[dims] for node in nodes], axis=0, weights=w)
-    
-# ===============================
-# OTHER
-
-def dim_dict_to_list(dim_dict, dim_names, placeholder=None, duplicate_singletons=False):
-    """
-    Convert a convenient dictionary representation of per-dimension information
-    to a list with placeholders, which can be used in calculations.
-    """
-    if type(dim_dict) != dict: return dim_dict # If not a dict, return unchanged.
-    dim_list = [placeholder for _ in dim_names]
-    for dim, value in dim_dict.items():
-        if duplicate_singletons:
-            try: len(value)
-            except: value = [value, value]
-        dim_list[dim_names.index(dim)] = value
-    return dim_list
-
-def round_sf(X, sf):
-    """
-    Round a float to the given number of significant figures.
-    """
-    def _r(x): return np.format_float_positional(x, precision=sf, unique=False, fractional=False, trim='k')
-    try: return _r(X) # For single value.
-    except: return f"({', '.join(_r(x) for x in X)})" # For iterable.
-
-def gather_attributes(nodes, attributes):
-    """
-    Gather a set of attributes from each node in the provided list.
-    """
-    results = []
-    for attr in attributes:
-        if attr is None: results.append([None])
-        else:
-            # Allow dim_name to be specified instead of number.
-            if type(attr[1]) == str: dim = nodes[0].source.dim_names.index(attr[1])
-            if len(attr) == 3 and type(attr[2]) == str: dim2 = nodes[0].source.dim_names.index(attr[2])
-            results.append(np.array([node.attr(attr) for node in nodes]))
-    return results

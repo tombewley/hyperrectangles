@@ -7,7 +7,7 @@ from tqdm import tqdm
 
 class Model:
     """
-    Class for a model, which is a wrapper for a flat collection of leaves. 
+    Class for a model, which is a wrapper for a flat collection of nodes (i.e. all leaves). 
     Tree inherits from here, overwrites some methods and adds new ones.
     """
     def __init__(self, name, leaves):
@@ -16,18 +16,26 @@ class Model:
         # These attributes are computed on request.
         self.transition_matrix, self.transition_graph = None, None 
     
-    def __repr__(self): return f"{self.name}: flat model with {len(self.leaves)} leaves"
+    # Dunder/magic methods.
+    def __repr__(self): return f"{self.name}: flat model with {len(self)} leaves"
+    def __call__(self, *args, **kwargs): return self.propagate(*args, **kwargs)
+    def __len__(self): return len(self.leaves)
 
-    def propagate(self, x, contain=False, mode='min', max_depth=np.inf):
+    def propagate(self, x, mode, contain=False, max_depth=np.inf):
         """
         Iterate through all leaves and check whether an input x is inside.
         """
-        return {leaf for leaf in self.leaves if is_x_in_node(leaf, x, contain, mode)}
+        leaves = set()
+        for leaf in self.leaves:
+            mu = leaf.membership(x, mode, contain)
+            if mu: leaves.add((leaf, mu) if mode == "fuzzy" else leaf)
+        return leaves
 
     def populate(self, sorted_indices=None):
         """
         Populate all leaves in the model with data from a sorted_indices array.
         """
+        assert self.source.data, "Source must have data."
         if sorted_indices is None: sorted_indices = self.source.all_sorted_indices
         for leaf in self.leaves:
             leaf.populate(bb_filter_sorted_indices(self.source, sorted_indices, leaf.bb_max))
@@ -36,11 +44,10 @@ class Model:
         """
         Propagate a set of samples through the model and get predictions along dims.
         """
-        # Allow dim_names to be specified instead of numbers.
-        if type(dims[0]) == str: dims = [self.source.dim_names.index(d) for d in dims]
+        dims = self.source.idxify(dims)
         # Check if input has been provided in dictionary form (assume X[0] has the same form as the rest).
         if type(X) == dict: X = [X]
-        if type(X[0]) == dict: X = [dim_dict_to_list(x, self.source.dim_names) for x in X]
+        X = [self.source.listify(x) for x in X]
         # Check if just one sample has been provided.
         X = np.array(X); shp = X.shape
         if len(X.shape) == 1: X = X.reshape(1,-1)
@@ -57,8 +64,10 @@ class Model:
         return np.array(p)
 
     def score(self, X, dims, ord=2): 
-        # Allow dim_names to be specified instead of numbers.
-        if type(dims[0]) == str: dims = [self.source.dim_names.index(d) for d in dims]
+        """
+        Score predictions on a set of inputs. All dims must be conditioned.
+        """
+        dims = self.source.idxify(dims)
         # Test if just one sample has been provided.
         X = np.array(X)
         if len(X.shape) == 1: X = X.reshape(1,-1)
@@ -70,23 +79,21 @@ class Model:
         """
         Return a list of minimal counterfactuals from x given foil, sorted by the provided method.
         """
-        foil = dim_dict_to_list(foil, self.source.dim_names) # Convert dictionary representation to list if needed.
-        if type(delta_dims[0]) == str: delta_dims = [self.source.dim_names.index(d) for d in delta_dims]
-        if fixed_dims and type(fixed_dims[0]) == str: fixed_dims = [self.source.dim_names.index(d) for d in fixed_dims]
+        delta_dims, fixed_dims = self.source.idxify(delta_dims, fixed_dims)
+        foil = self.source.listify(foil) 
         # Marginalise out all non-fixed dims in x.
-        x_marg = x.copy()
-        x_marg[[d for d in range(len(x)) if d not in fixed_dims]] = None
+        x_marg = x.copy(); x_marg[[d for d in range(len(x)) if d not in fixed_dims]] = None
         # Accessible leaves are those that intersect the marginalised x.
         leaves_accessible = self.propagate(x_marg, mode=access_mode)
         # Foil leaves are those that intersect the foil condition (mean mode).
         leaves_foil = self.propagate(foil, mode='mean') 
-        # We are intersected in leaves that are both accessible and foils.
+        # We are interested in leaves that are both accessible and foils.
         options = []
-        scale = np.sqrt(self.source.global_var_scale[delta_dims])
+        scale = np.sqrt(self.source.global_var_scale[delta_dims]) # NOTE: normalise by global standard deviation.
         for leaf in leaves_accessible & leaves_foil:
             # Find the closest point in each.
             x_closest = closest_point_in_bb(x, leaf.bb_min if access_mode=='min' else leaf.bb_max)
-            # Compute the L0 and L2 norms. NOTE: normalise each dim by global standard deviation!
+            # Compute the L0 and L2 norms. 
             delta = (x_closest - x)[delta_dims] * scale
             l0, l2 = np.linalg.norm(delta, ord=0), np.linalg.norm(delta, ord=2)
             options.append((leaf, x_closest, l0, l2))
@@ -102,10 +109,10 @@ class Model:
         The final two rows and cols correspond to initial/terminal.
         """
         time_idx = self.source.dim_names.index('time') # Must have time dimension.
-        n = len(self.leaves)
+        n = len(self)
         self.transition_matrix = np.zeros((n+2, n+2), dtype=int)  # Extra rows and cols for initial/terminal.
         # Iterate through the source data in temporal order.
-        leaf_idx_last = n; self.transition_matrix[n, n+1] = -1 # First initial sample.
+        leaf_idx_last = n; self.transition_matrix[n, n+1] = -1 # To correct for first initial sample.
         for x in self.source.data:
             leaves = self.propagate(x, mode='max') # NOTE: Do we really need to propagate here?
             assert len(leaves) == 1, "Can only compute transitions if leaves are disjoint and exhaustive."
@@ -126,11 +133,11 @@ class Model:
         """
         # Need transition matrix first.
         if self.transition_matrix is None: self.make_transition_matrix()
-        n = len(self.leaves)
         mx = self.transition_matrix.max() # Count for single most common transition.
         G = nx.DiGraph()
         # Create nodes: one for each leaf plus initial and terminal.
         nodes = self.leaves + ['I', 'T']
+        n = len(self)
         G.add_nodes_from([(l, 
                          # For attributes, use the node's meta dictionary and add an index.
                          dict([('idx',i)] + list(l.meta.items())) if i < n else {'idx':l}) 
@@ -160,14 +167,10 @@ class Model:
         An implementation of TreeSHAP for computing local importances for shap_dims, based on Shapley values.
         NOTE: Not as heavily-optimised as the algorithm in the original paper.
         """
-        # Allow dim_names to be specified instead of numbers.
-        if type(shap_dims[0]) == str: shap_dims = [self.source.dim_names.index(d) for d in shap_dims]
-        if type(wrt_dim) == str: wrt_dim = self.source.dim_names.index(wrt_dim)
+        shap_dims, wrt_dim, ignore_dim = self.source.idxify(shap_dims, wrt_dim, ignore_dim)
         shap_dims = set(shap_dims)
         assert wrt_dim not in shap_dims, "Can't include wrt_dim in the set of shap_dims!"
-        if ignore_dim is not None:
-            if type(ignore_dim) == str: ignore_dim = self.source.dim_names.index(ignore_dim)
-            shap_dims -= {ignore_dim}
+        shap_dims -= {ignore_dim}
         # Store the mean value along wrt_dim, and the population, for all leaves.
         means_and_pops = {l: (l.mean[wrt_dim], l.num_samples) for l in self.leaves}
         # Pre-store some reused values.
@@ -177,7 +180,7 @@ class Model:
              for i in range(0,num_shap_dims)]
         shaps = []
         for x in tqdm(X):
-            # For each split_dim, find the set of leaves compatible with the sample's value along this dim.
+            # For each shap_dim, find the set of leaves compatible with the sample's value along this dim.
             compatible_leaves = {}
             for d in shap_dims:
                 x_s = nones.copy(); x_s[d] = x[d]
@@ -189,14 +192,7 @@ class Model:
                 else:
                     matching_leaves = set.intersection(*(compatible_leaves[d] for d in dim_set)) # Leaves compatible with dim_set.
                     mp = np.array([means_and_pops[l] for l in matching_leaves]) # Means and pops as NumPy array.
-                try: marginals[dim_set] = np.average(mp[:,0], weights=mp[:,1]) # Population-weighted average.
-                except:
-                    print(x)
-                    print(dim_set)
-                    print([len(compatible_leaves[d]) for d in dim_set])
-                    print(self.propagate(x, mode=('max' if maximise else 'min')))
-                    print(mp)
-                    raise Exception()
+                marginals[dim_set] = np.average(mp[:,0], weights=mp[:,1]) # Population-weighted average.
                 # For each dim in the dim_set, compute the effect of adding it.
                 if len(dim_set) > 0:
                     for i, d in enumerate(dim_set):

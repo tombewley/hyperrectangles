@@ -7,22 +7,24 @@ class Tree(Model):
     Class for a tree, which inherits from model and introduces a few tree-specific methods.
     """
     def __init__(self, name, root, split_dims, eval_dims):
-        Model.__init__(self, name, leaves=None) # Don't explicitly pass leaves. 
+        Model.__init__(self, name, leaves=None) # Don't explicitly pass leaves because they're under root.
         self.root, self.source, self.split_dims, self.eval_dims = root, root.source, split_dims, eval_dims
         self.leaves = self._get_leaves() # Collect the list of leaves.
 
+    # Dunder/magic methods.
     def __repr__(self): return f"{self.name}: tree model with {len(self.leaves)} leaves"
 
-    def propagate(self, x, contain=False, mode='min', max_depth=np.inf):
+    def propagate(self, x, mode, contain=False, max_depth=np.inf):
         """
         Overwrites Model.propagate using a more efficient tree-specific method.
         """
-        x = dim_dict_to_list(x, self.source.dim_names) # Convert dictionary representation to list if needed.
+        if mode == "fuzzy": raise NotImplementedError()
+        x = self.source.listify(x)
         def _recurse(node, depth=0):
             if node is None: return set()
             if node.split_dim is None or depth >= max_depth: 
                 # If have reached a leaf and mode is min or mean, still need to check compatibility.
-                if mode in ('min', 'mean') and not is_x_in_node(node, x, contain, mode): return set()
+                if mode in ("min", "mean") and not node.membership(x, mode, contain): return set()
                 return {node}
             else:
                 xd, t = x[node.split_dim], node.split_threshold
@@ -77,16 +79,10 @@ class Tree(Model):
         found, dca = _recurse_find_dca(self.root)
         if not found: return False 
         subtree = Tree(name, dca, self.split_dims, self.eval_dims)
-
-        print('TREE BEFORE', len(self.leaves))
-        print('SUBTREE BEFORE', len(subtree.leaves))
-
         # Next iterate through the subtree and iteratively replace nodes with one child,
         # using that child itself. This is not quite the same as pruning.
         def _recurse_minimise(node, path=''):
-
             replacement = node if node in nodes else None
-
             if node.split_dim:
                 replacement_left = _recurse_minimise(node.left, path+'0')
                 replacement_right = _recurse_minimise(node.right, path+'1')
@@ -96,35 +92,22 @@ class Tree(Model):
                     node.left = replacement_left 
                     # Keep existing bounding box.
                     if replacement_left is not None: node.left.bb_max = bb_max_left
-
                 if replacement_right != node.right: 
                     # Replace the right child, either with None or one of its children.
                     bb_max_right = node.right.bb_max
                     node.right = replacement_right 
                     # Keep existing bounding box.
                     if replacement_right is not None: node.right.bb_max = bb_max_right
-
                 if replacement is None:
                     # Determine how to replace this node.
                     if node.left is None:
                         if node.right is not None: replacement = node.right
                     elif node.right is None: replacement = node.left
-                    else: replacement = node
-
-                # print('PATH', path)
-                # print(node)
-                # print(replacement_left, replacement_right)
-                # # print(node.left, node.right)
-                # print(replacement)
-                # print()
-      
+                    else: replacement = node      
             return replacement
-
         subtree.root = _recurse_minimise(subtree.root)
         subtree.leaves = subtree._get_leaves() # Recompute leaves.
-        print('SUBTREE AFTER', len(subtree.leaves))
         self = self_prev # Restore deepcopy.
-        print('TREE AFTER', len(self._get_leaves()))
         return subtree
 
     def prune_mccp(self):
@@ -132,9 +115,8 @@ class Tree(Model):
         Perform one step of minimal cost complexity pruning.
         See http://mlwiki.org/index.php/Cost-Complexity_Pruning for details.
         Here, cost = reduction in var_sum / (num leaves in subtree - 1).
-        NOTE: A full pruning sequence is slightly inefficient
-        because have to recompute costs on each iteration, 
-        but there are advantages to modularity.
+        NOTE: A full pruning sequence is slightly inefficient because have to
+        recompute costs on each iteration, but there are advantages to modularity.
         """
         # Subfunction for calculating costs is similar to the _recurse() function inside backprop_gains(),
         # except it takes the weighted sum of var_sum rather than per-feature, and realised only.

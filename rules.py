@@ -6,8 +6,8 @@ def rules(tree, pred_dims=None, sf=3, out_name=None):
     """
     Represent tree as a rule set with pred_dims as the consequent.
     """
-    if pred_dims and type(pred_dims[0]) == str: pred_dims = [tree.source.dim_names.index(p) for p in pred_dims]
-    dim_names = tree.source.dim_names; lines = []    
+    pred_dims = tree.source.idxify(pred_dims)
+    dim_names, lines = tree.source.dim_names, []    
     def _recurse(node, depth=0):
         i = "    " * depth # Indent.     
         if node is None: lines.append(f"{i}return None")       
@@ -21,7 +21,7 @@ def rules(tree, pred_dims=None, sf=3, out_name=None):
                 lines.append(f"{i}return {round_sf(node.mean[pred_dims], sf)} (n={node.num_samples}, std={round_sf(np.sqrt(np.diag(node.cov)[pred_dims]), sf)})")
             else: lines.append(f"{i}return")
     _recurse(tree.root)
-    if out_name is not None:  # If out_name specified, write
+    if out_name is not None:  # If out_name specified, write out.
         with open(out_name+".py", "w", encoding="utf-8") as f:
             for l in lines: f.write(l+"\n")
     return "\n".join(lines)
@@ -30,7 +30,7 @@ def diagram(tree, pred_dims, sf=3, verbose=False, colour="#ffffff", out_name=Non
     """
     Represent tree as a pydot diagram with pred_dims and the consequent.
     """
-    if type(pred_dims[0]) == str: pred_dims = [tree.source.dim_names.index(p) for p in pred_dims]
+    pred_dims = tree.source.idxify(pred_dims)
     dim_names = tree.source.dim_names; graph_spec = 'digraph Tree {node [shape=box];'
     def _recurse(node, graph_spec, n=0, n_parent=0, dir_label="<"):
         if node is None: graph_spec += f'{n} [label="None"];'
@@ -81,9 +81,8 @@ def counterfactual(x, options, delta_dims, sf=3):
     Describe a set of counterfactual options.
     """
     if type(options) == tuple: options = [options]
-    dim_names, operators = options[0][0].source.dim_names, [None,">=","<"]
-    if type(delta_dims[0]) == str: delta_dims = [dim_names.index(d) for d in delta_dims]
-    options_text = []
+    delta_dims = options[0][0].source.idxify(delta_dims)
+    dim_names, operators, options_text = options[0][0].source.dim_names, [None,">=","<"], []    
     for leaf, x_closest, l0, l2 in options:
         terms = []
         for d, diff in enumerate(np.sign(x_closest - x)):

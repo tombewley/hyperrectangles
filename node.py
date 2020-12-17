@@ -8,22 +8,30 @@ class Node:
     Class for a node, which is characterised by its samples (sorted_indices of data from source), 
     mean, covariance matrix and minimal and maximal bounding boxes. 
     """
-    def __init__(self, source, sorted_indices=None, bb_max=None, parent_split_info=None, meta={}):
+    def __init__(self, source, sorted_indices=None, bb_min=None, bb_max=None, meta={}):
         self.source = source # To refer back to the source class.        
-        # If a maximal bounding box has been provided, just use that.
-        if bb_max: self.bb_max = np.array(bb_max)
-        # If this node has a parent, use the provided split information to create bb_max.
-        elif parent_split_info: self.bb_max, d, lu, v = parent_split_info; self.bb_max[d,lu] = v 
-        # Otherwise, bb_max is infinite.
-        else: self.bb_max = np.array([[-np.inf, np.inf] for _ in self.source.dim_names]) 
+        self.bb_max = np.array(bb_max if bb_max else # If a maximal bounding box has been provided, use that.
+                      [[-np.inf, np.inf] for _ in self.source.dim_names]) # Otherwise, bb_max is infinite.
         # These attributes are defined if and when the node is split.
         self.split_dim, self.split_threshold, self.left, self.right, self.gains = None, None, None, None, {} 
         # This dictionary can be used to store miscellaneous meta information about this node.
         self.meta = meta
         # Populate with samples if provided.
         self.populate(sorted_indices)
+        # Overwrite minimal bounding box if provided.
+        if bb_min: self.bb_min = np.array(bb_min)
 
+    # Dunder/magic methods.
     def __repr__(self): return f"Node with {self.num_samples} samples"
+    def __call__(self, *args, **kwargs): return self.membership(*args, **kwargs)
+    def __getattr__(self, key): return self.__getitem__(key)
+    def __getitem__(self, key): 
+        if type(key) == tuple: 
+            try: return self.stat(key) # For statistical attributes.
+            except: pass
+        return self.meta[key]
+    def __setitem__(self, key, val): self.meta[key] = val
+    def __contains__(self, idx): return idx in self.sorted_indices[:,0] 
 
     def populate(self, sorted_indices):
         """
@@ -47,34 +55,84 @@ class Node:
         self.cov_sum = self.cov * self.num_samples
         self.var_sum = np.diag(self.cov_sum)
 
-    def attr(self, attr):
+    def membership(self, x, mode, contain=False):
         """
-        Compute a statistical attribute for this node.
+        Evaluate the membership of x in this node. Each element of x can be None (ignore),
+        a scalar (treat as in regular prediction), or a (min, max) interval.
         """
-        # Allow dim_name to be specified instead of number.
-        if type(attr[1]) == str: dim = self.source.dim_names.index(attr[1])
-        if len(attr) == 3 and type(attr[2]) == str: dim2 = self.source.dim_names.index(attr[2])
+        per_dim = []
+        for xd, lims_min, lims_max, mean in zip(x, self.bb_min, self.bb_max, self.mean):
+            try:
+                # For marginalised (None <=> (-inf, inf) interval).
+                if xd is None or np.isnan(xd): 
+                    if mode == "fuzzy": per_dim.append(1) 
+                # For scalar.
+                elif mode == "mean": # Equal to mean.
+                    if not xd == mean: return 0 
+                elif mode in ("min", "max"): # Inside bounding box.
+                    lims = (lims_min if mode == "min" else lims_max)
+                    if not(xd >= lims[0] and xd <= lims[1]): return 0
+                elif mode == "fuzzy": # Fuzzy membership using both bounding boxes.
+                    to_max_l = xd - lims_max[0]
+                    to_max_u = xd - lims_max[1]
+                    # Outside bb_max.
+                    if not(to_max_l >= 0 and to_max_u <= 0): return 0 
+                    else:
+                        to_min_l = xd - lims_min[0]
+                        above_min_l = (to_min_l >= 0)
+                        to_min_u = xd - lims_min[1]
+                        below_min_u = (to_min_u <= 0)
+                        # Inside bb_min.
+                        if (above_min_l and below_min_u): per_dim.append(1)
+                        # Otherwise (partial membership).
+                        else: 
+                            # Below lower of bb_min.
+                            if not(above_min_l): per_dim.append(to_max_l / (to_max_l - to_min_l))
+                            # Above upper of bb_min.
+                            else: per_dim.append(to_max_u / (to_max_u - to_min_u))
+                else: raise ValueError()
+            except:
+                # For (min, max) interval.
+                if mode == "fuzzy": raise NotImplementedError("Cannot handle intervals in fuzzy mode.")
+                elif mode == "mean": # Contains mean.
+                    if not (xd[0] <= mean <= xd[1]): return 0 
+                elif mode in ("min", "max"): # Intersected/contained by bounding box.
+                    lims = (lims_min if mode == "min" else lims_max)
+                    compare = [[i >= l for i in xd] for l in lims]
+                    if contain:
+                        if (not(compare[0][0]) or compare[1][1]): return 0
+                    elif (not(compare[0][1]) or compare[1][0]): return 0
+        if mode == "fuzzy":
+            return abs(min(per_dim)) # Compute total membership using the minimum T-norm.
+        return 1
+
+    def stat(self, attr):
+        """
+        Return a statistical attribute for this node.
+        """
+        dim = self.source.idxify(attr[1])
+        if len(attr) == 3: dim2 = self.source.idxify(attr[2])
         # Mean, standard deviation, or sqrt of covarance (std_c).
         if attr[0] == 'mean': return self.mean[dim]
-        elif attr[0] == 'std': return np.sqrt(self.cov[dim,dim])
-        elif attr[0] == 'std_c': return np.sqrt(self.cov[dim,dim2])
-        elif attr[0] in ('median','iqr','q1q3'):
+        if attr[0] == 'std': return np.sqrt(self.cov[dim,dim])
+        if attr[0] == 'std_c': return np.sqrt(self.cov[dim,dim2])
+        if attr[0] in ('median','iqr','q1q3'):
             # Median, interquartile range, or lower and upper quartiles.
             q1, q2, q3 = np.quantile(self.source.data[self.sorted_indices[:,dim],dim], (.25,.5,.75))
             if attr[0] == 'median': return q2
-            elif attr[0] == 'iqr': return q3-q1
-            elif attr[0] == 'q1q3': return (q1,q3)
+            if attr[0] == 'iqr': return q3-q1
+            if attr[0] == 'q1q3': return (q1,q3)
+        raise ValueError()
     
-    def pca(self, dims=None, n_components=None, whiten_by='local'):
+    def pca(self, dims=None, n_components=None, whiten_by="local"):
         """
         Perform principal component analysis on the data at this node, whitening beforehand
         to ensure that large dimensions do not dominate.
         """
         X = self.source.data[self.sorted_indices[:,0][:,None],dims]
-        if X.shape[0] == 1: return None, None
+        if X.shape[0] <= 1: return None, None
         if dims is None: dims = np.arange(len(self.source.dim_names))
-        # Allow dim_names to be specified instead of numbers.
-        if type(dims[0]) == str: dims = [self.source.dim_names.index(d) for d in dims]
+        else: dims = source.idxify(dims)
         # Whiten data, using either local or global standard deviation.
         mean = X.mean(axis=0)
         std = X.std(axis=0) if whiten_by == 'local' else (1 / (self.source.global_var_scale[dims] ** 0.5))   
@@ -83,18 +141,23 @@ class Node:
         pca = PCA(n_components=n_components); pca.fit(X)
         # Return components scaled back by standard deviation, and explained variance ratio.
         return (pca.components_ * std), pca.explained_variance_ratio_
-    
+
     def _do_manual_split(self, split_dim, split_threshold):
         """
         Split using a manually-defined split_dim and split_threshold.
         """
         if not(self.bb_max[split_dim][0] <= split_threshold <= self.bb_max[split_dim][1]): return False
         self.split_dim, self.split_threshold = split_dim, split_threshold
+        # Split samples.
         data = self.source.data[self.sorted_indices[:,self.split_dim], self.split_dim]
         split_index = bisect.bisect(data, self.split_threshold)
         left, right = split_sorted_indices(self.sorted_indices, self.split_dim, split_index)
-        self.left = Node(self.source, left, parent_split_info=(self.bb_max.copy(), self.split_dim, 1, self.split_threshold))
-        self.right = Node(self.source, right, parent_split_info=(self.bb_max.copy(), self.split_dim, 0, self.split_threshold))
+        # Split bounding box.
+        bb_max_left = self.bb_max.copy(); bb_max_left[self.split_dim,1] = self.split_threshold
+        bb_max_right = self.bb_max.copy(); bb_max_right[self.split_dim,0] = self.split_threshold
+        # Make children.
+        self.left = Node(self.source, sorted_indices=left, bb_max=bb_max_left)
+        self.right = Node(self.source, sorted_indices=right, bb_max=bb_max_right)
         return True
 
     def _do_greedy_split(self, split_dims, eval_dims, corr=False, one_sided=False, pop_power=.5):
@@ -103,22 +166,24 @@ class Node:
         """
         splits, extra = self._find_greedy_splits(split_dims, eval_dims, corr, one_sided, pop_power)
         if splits:
-            # Sort by quality and choose the single best.
+            # Sort splits by quality and choose the single best.
             split_dim, split_point, qual, index, (left, right) = sorted(splits, key=lambda x: x[2], reverse=True)[0]        
             if qual > 0:
                 self.split_dim = split_dim
-                # Pick actual numerical threshold to split at: midpoint of samples either side.
+                # Compute numerical threshold to split at: midpoint of samples either side.
                 self.split_threshold = (self.source.data[left[-1,split_dim],split_dim] + self.source.data[right[0,split_dim],split_dim]) / 2
                 if one_sided: # Only create the child for which the split is made.
                     self.eval_child_and_dims = index
                     do_right = bool(self.eval_child_and_dims[0])
-                    print(f'Split @ {self.split_dim}={self.split_threshold} for child {self.eval_child_and_dims[0]} cov({self.source.dim_names[eval_dims[self.eval_child_and_dims[1]]]},{self.source.dim_names[eval_dims[self.eval_child_and_dims[2]]]})')           
-                else:
-                    self.gains['immediate'] = extra
+                    print(f'Split @ {self.split_dim}={self.split_threshold} for child {self.eval_child_and_dims[0]} cov({self.source.dim_names[eval_dims[self.eval_child_and_dims[1]]]},{self.source.dim_names[eval_dims[self.eval_child_and_dims[2]]]})')
+                else: self.gains["immediate"] = extra
+                # Split bounding box and make children.
                 if (not one_sided) or (not do_right):
-                    self.left = Node(self.source, left, parent_split_info=(self.bb_max.copy(), split_dim, 1, self.split_threshold))
+                    bb_max_left = self.bb_max.copy(); bb_max_left[self.split_dim,1] = self.split_threshold
+                    self.left = Node(self.source, sorted_indices=left, bb_max=bb_max_left)
                 if (not one_sided) or do_right:
-                    self.right = Node(self.source, right, parent_split_info=(self.bb_max.copy(), split_dim, 0, self.split_threshold))
+                    bb_max_right = self.bb_max.copy(); bb_max_right[self.split_dim,0] = self.split_threshold
+                    self.right = Node(self.source, sorted_indices=right, bb_max=bb_max_right)
                 return True, extra
         return False, extra
 
@@ -174,7 +239,7 @@ class Node:
         """
         Try splitting the node along one split_dim, calculating (co)variance sums along eval_dims.  
         """
-        eval_data = self.source.data[self.sorted_indices[:,split_dim][:,None],eval_dims] # Gather data from source class.
+        eval_data = self.source.data[self.sorted_indices[:,split_dim][:,None],eval_dims] 
         d = len(eval_dims)
         mean = np.zeros((2,self.num_samples,d))
         if cov: # For full covariance matrix.

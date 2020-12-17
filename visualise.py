@@ -8,12 +8,10 @@ import networkx as nx
 def show_samples(node, vis_dims, colour_dim=None, alpha=None, spark=False, subsample=None, ax=None):
     """
     Scatter plot across vis_dims of all the samples contained in node.
-    TODO: colour_dim.
     """
     assert len(vis_dims) in (2,3)
-    # Allow dim_names to be specified instead of numbers.
-    if type(vis_dims[0]) == str: vis_dims = [node.source.dim_names.index(v) for v in vis_dims]
-    # if type(colour_dim) == str: colour_dim = node.source.dim_names.index(colour_dim)
+    vis_dims = node.source.idxify(vis_dims)
+    if colour_dim: raise NotImplementedError()
     X = node.source.data[subsample_sorted_indices(node.sorted_indices, subsample)[:,0][:,None], vis_dims]
     lims = [[X[:,0].min(), X[:,0].max()], [X[:,1].min(), X[:,1].max()]]
     if ax is None: 
@@ -47,7 +45,7 @@ def show_lines(tree, attributes, max_depth=np.inf, maximise=False, show_spread=F
                        for a in attributes]
     # Collect the list of nodes to show.
     nodes = list(tree.propagate({}, mode=('max' if maximise else 'min'), max_depth=np.inf))
-    values = gather_attributes(nodes, attributes)
+    values = gather(nodes, *attributes)
     # Create new axes if needed.
     if ax is None: _, ax = plt.subplots()#figsize=(9,8))
     split_dim_name = tree.source.dim_names[tree.split_dims[0]]
@@ -79,17 +77,15 @@ def show_rectangles(model, vis_dims=None, attribute=None,
     Compute the rectangular projections of nodes from model onto vis_dims, and colour according to attribute.
     Where multiple projections overlap, compute a marginal value using the weighted_average function from utils.
     """       
-    if vis_dims is not None:
-        # Allow dim_names to be specified instead of numbers.
-        if type(vis_dims[0]) == str: vis_dims = [model.source.dim_names.index(v) for v in vis_dims] 
-    else: vis_dims = model.split_dims # Will fail if not a tree.
+    if vis_dims is None: vis_dims = model.split_dims # Will fail if not a tree.
+    else: vis_dims = model.source.idxify(vis_dims)
     assert len(vis_dims) == 2, "Must have |vis_dims| = 2."
     if vis_lims is not None: vis_lims = np.array(vis_lims) # Manually specify vis_lims.
-    else: vis_lims = model.root.bb_min[vis_dims] # Otherwise use bounding box of root (for tree).
+    else: vis_lims = model.root.bb_min[vis_dims] # Otherwise use bb_min of root (for tree).
     # Set up axes.
     ax = _ax_setup(ax, model, vis_dims, attribute=attribute, slice_dict=slice_dict)
     # Collect the list of nodes to show.
-    if slice_dict != {}: slice_list = dim_dict_to_list(slice_dict, model.source.dim_names)
+    if slice_dict != {}: slice_list = model.source.listify(slice_dict)
     else: slice_list = slice_dict
     nodes = list(model.propagate(slice_list, mode=('max' if maximise else 'min'), max_depth=max_depth))        
     try:
@@ -97,15 +93,14 @@ def show_rectangles(model, vis_dims=None, attribute=None,
         # TODO: This doesn't catch cases when nodes are non-overlapping despite vis_dims != split_dims.
         try: np.array_equal(vis_dims, model.split_dims) # Will fail if not a tree.
         except: assert not(attribute) 
-        values = list(gather_attributes(nodes, [attribute])[0])
+        values = gather(nodes, attribute)
         bbs = [(bb_clip(node.bb_max[vis_dims], vis_lims) if maximise 
                 else node.bb_min[vis_dims]) for node in nodes]
     except:
         # Otherwise, projection required.
         assert attribute[0] == 'mean', 'Can only project mean attributes.'
         projections = project(nodes, vis_dims, maximise=maximise, resolution=project_resolution)
-        colour_dim = attribute[1]
-        if type(colour_dim) == str: colour_dim = model.source.dim_names.index(colour_dim)
+        colour_dim = model.source.idxify(attribute[1])
         # Ensure slice_dict is factored into the weighting.
         weight_dims = vis_dims.copy()
         if slice_dict != {}:
@@ -122,21 +117,21 @@ def show_rectangles(model, vis_dims=None, attribute=None,
         fill_colour=fill_colour, edge_colour=edge_colour)
     return ax
 
-def show_difference_rectangles(tree_a, tree_b, attribute, max_depth=np.inf, maximise=False, cmap_lims=None, edge_colour=None, ax=None):
+def show_difference_rectangles(tree_a, tree_b, vis_dims, attribute, max_depth=np.inf, maximise=False, cmap_lims=None, edge_colour=None, ax=None):
     """
     Given two trees with the same two split_dims, display rectangles coloured by the differences in the given attribute.
     TODO: Adapt for slicing. 
     """
-    raise NotImplementedError("Need to clip intersection to *inner* of tree_a,root.bb_min and tree_b,root.bb_min")
-    assert len(tree_a.split_dims) == 2 and tree_a.split_dims == tree_b.split_dims
-    vis_dims = tree_a.split_dims
+    if maximise: raise NotImplementedError("Need to clip bb_max intersection to *inner* of tree_a.root.bb_min and tree_b.root.bb_min")
+    assert tree_a.source == tree_b.source
+    vis_dims = tree_a.source.idxify(vis_dims)
     # Set up axes.
     ax = _ax_setup(ax, tree_a, vis_dims, attribute=attribute, diff=True, tree_b=tree_b)    
     # Collect the lists of nodes to show.
     nodes_a = list(tree_a.propagate({}, mode=('max' if maximise else 'min'), max_depth=max_depth))
-    values_a = gather_attributes(nodes_a, [attribute])
+    values_a = gather(nodes_a, attribute)
     nodes_b = list(tree_b.propagate({}, mode=('max' if maximise else 'min'), max_depth=max_depth))
-    values_b = gather_attributes(nodes_b, [attribute])
+    values_b = gather(nodes_b, attribute)
     # Compute the pairwise intersections between nodes.
     intersections = []; diffs = []
     for node_a, value_a in zip(nodes_a, values_a[0]):
@@ -183,7 +178,7 @@ def show_derivatives(tree, max_depth=np.inf, scale=1, pivot='tail', ax=None):
     ax = _ax_setup(ax, tree, tree.split_dims, derivs=True)    
     # Collect the mean locations and derivative values.
     attributes = [('mean',s) for s in vis_dim_names] + [('mean',f'd_{s}') for s in vis_dim_names]
-    values = gather_attributes(list(tree.propagate({}, mode=('max' if maximise else 'min'), max_depth=max_depth)), attributes)
+    values = gather(list(tree.propagate({}, mode=('max' if maximise else 'min'), max_depth=max_depth)), *attributes)
     # Create arrows centred at means.    
     plt.quiver(values[0], values[1], values[2], values[3], 
                       pivot=pivot, angles='xy', scale_units='xy', units='inches', 
@@ -194,12 +189,11 @@ def show_transition_graph(model, layout_dims=None, highlight_path=None, alpha=Fa
     """
     Visualise transition graph using networkx.
     """
-    assert model.transition_graph is not None
+    if not model.transition_graph: model.make_transition_graph()
     G = model.transition_graph
     if layout_dims is not None:
         assert len(layout_dims) == 2 
-        # Allow dim_names to be specified instead of numbers.
-        if type(layout_dims[0]) == str: layout_dims = [model.source.dim_names.index(v) for v in layout_dims] 
+        layout_dims = model.source.idxify(layout_dims)
         if ax is None: ax = _ax_setup(ax, model, layout_dims)
         pos = {}; # fixed = []
         for node in G.nodes():
@@ -214,7 +208,7 @@ def show_transition_graph(model, layout_dims=None, highlight_path=None, alpha=Fa
         pos = nx.spring_layout(G)
         if ax is None: _, ax = plt.subplots()#figsize=(12,12))    
     # Draw nodes and labels.
-    nx.draw_networkx_nodes(G, pos=pos, node_color=["#a8caff" for _ in range(len(model.leaves))] + ["#74ad83","#e37b40"])
+    nx.draw_networkx_nodes(G, pos=pos, node_color=["#a8caff" for _ in range(len(model))] + ["#74ad83","#e37b40"])
     nx.draw_networkx_labels(G, pos=pos, labels=nx.get_node_attributes(G, "idx"))
     # If highlight_path specified, highlight it in a different colour.
     if highlight_path is not None:
@@ -234,32 +228,27 @@ def show_transition_graph(model, layout_dims=None, highlight_path=None, alpha=Fa
         ax.tick_params(left=True, bottom=True, labelleft=True, labelbottom=True)
     return ax
 
-def show_shap_dependence(tree, node, wrt_dim, shap_dim, vis_dim=None, deinteraction_dim=None, 
+def show_shap_dependence(tree, node, wrt_dim, shap_dim, vis_dim=None, deint_dim=None, 
                          colour_dim=None, colour='k', alpha=1, subsample=None):
     """
     For all the samples at a node (or a subsample), scatter the SHAP values for shap_dim w.r.t. wrt_dim.
     Distribute points along shap_dim *or* a specified vis_dim, and optionally colour points by colour_dim.
-    TODO: Remove interaction effects with "deinteraction_dim"
+    TODO: Remove interaction effects with "deint_dim"
     """
-    # Allow dim_names to be specified instead of numbers.
     if vis_dim is None: vis_dim = shap_dim
-    if type(shap_dim) == str: shap_dim = tree.source.dim_names.index(shap_dim)
-    if type(wrt_dim) == str: wrt_dim = tree.source.dim_names.index(wrt_dim)
-    if type(vis_dim) == str: vis_dim = tree.source.dim_names.index(vis_dim)
-    if type(deinteraction_dim) == str: deinteraction_dim = tree.source.dim_names.index(deinteraction_dim)
-    if type(colour_dim) == str: colour_dim = tree.source.dim_names.index(colour_dim)
+    shap_dim, wrt_dim, vis_dim, deint_dim, colour_dim = tree.source.idxify(shap_dim, wrt_dim, vis_dim, deint_dim, colour_dim)
     # Compute SHAP values for all samples.
     X = node.source.data[subsample_sorted_indices(node.sorted_indices, subsample)[:,0]]
-    if deinteraction_dim is None: 
+    if deint_dim is None: 
         shaps = tree.shap(X, shap_dims=tree.split_dims, wrt_dim=wrt_dim, maximise=False)
         d = np.array(list(zip(X[:,vis_dim], 
                           [s[shap_dim] for s in shaps])))
     else: 
-        # Remove interaction effects with deinteraction_dim.
-        shaps = tree.shap_with_ignores(X, shap_dims=tree.split_dims, wrt_dim=wrt_dim, ignore_dims=[deinteraction_dim], maximise=False)
+        # Remove interaction effects with deint_dim.
+        shaps = tree.shap_with_ignores(X, shap_dims=tree.split_dims, wrt_dim=wrt_dim, ignore_dims=[deint_dim], maximise=False)
         d = np.array(list(zip(X[:,vis_dim], 
                           [s[shap_dim] - (i[shap_dim] / 2) for s,i in # <<< NOTE: DIVIDE BY 2?
-                          zip(shaps[None], shaps[deinteraction_dim])])))
+                          zip(shaps[None], shaps[deint_dim])])))
     if colour_dim is not None: c = X[:,colour_dim]
     # Set up figure.
     _, ax = plt.subplots(figsize=(12/5,12/5))
@@ -280,7 +269,7 @@ def show_shap_dependence(tree, node, wrt_dim, shap_dim, vis_dim=None, deinteract
     return ax
 
 def _ax_setup(ax, model, vis_dims, attribute=None, diff=False, tree_b=None, derivs=False, slice_dict={}):
-    if ax is None: _, ax = plt.subplots(figsize=(3,12/5))
+    if ax is None: _, ax = plt.subplots(figsize=(12,8))#(3,12/5))
     vis_dim_names = [model.source.dim_names[v] for v in vis_dims]
     ax.set_xlabel(vis_dim_names[0]); ax.set_ylabel(vis_dim_names[1])
     title = model.name
