@@ -5,14 +5,14 @@ from .utils import *
 import numpy as np
 from tqdm import tqdm
 
-class Source:
+class Space:
     """
-    Master class for centrally storing data and building models.
+    Master class for centrally storing data and building models within a vector space.
     """
     def __init__(self, data, dim_names):
         self.data = data
-        assert len(dim_names) == data.shape[1]
         self.dim_names = dim_names
+        assert data.shape[1] == len(self)
         if data.shape[0]:
             # Sort data along each dimension up front.
             self.all_sorted_indices = np.argsort(data, axis=0) 
@@ -24,8 +24,9 @@ class Source:
         self.models = {}
 
     # Dunder/magic methods.
-    def __repr__(self): return f"Source with {len(self.data)} samples and {len(self.models)} models"
+    def __repr__(self): return f"{len(self)}D space with {len(self.data)} samples and {len(self.models)} models"
     def __getitem__(self, name): return self.models[name]
+    def __len__(self): return len(self.dim_names)
 
     def subset(self, bb=None, subsample=None):
         """
@@ -83,11 +84,9 @@ class Source:
         """
         leaves = []
         for node in (d.values() if type(d) == dict else d):
-            # Get the maximal bounding box in the correct form. 
-            bb_max = self.listify(node["bb_max"], placeholder=[-np.inf,np.inf], duplicate_singletons=True)
-            # Also add minimal bounding box if specified.
-            if "bb_min" in node:
-                bb_min = self.listify(node["bb_min"], placeholder=[-np.inf,np.inf], duplicate_singletons=True)    
+            # Get the maximal (and optionally minimal) bounding box in the correct form. 
+            bb_max, bb_min = self.listify(node["bb_max"], node["bb_min"] if "bb_min" in node else None,
+                                  placeholder=[-np.inf,np.inf], duplicate_singletons=True)  
             # Add a new leaf.
             leaves.append(Node(self, bb_min=bb_min, bb_max=bb_max, meta=node["meta"]))
         self.models[name] = Model(name, leaves)
@@ -153,19 +152,23 @@ class Source:
             dims_idx.append(dims)
         return dims_idx if len(dims_idx) > 1 else dims_idx[0]
 
-    def listify(self, x, placeholder=None, duplicate_singletons=False):
+    def listify(self, *args, placeholder=None, duplicate_singletons=False):
         """
         Hyperrectangular sets are convenient to specify as dictionaries.
         This method converts them into lists.
         """
-        if type(x) != dict: return x # If not a dict, return unchanged.
-        dim_list = [placeholder for _ in self.dim_names]  
-        for dim, value in dim_dict.items():
-            if duplicate_singletons:
-                try: len(value)
-                except: value = [value, value]
-            dim_list[dim_names.index(dim)] = value
-        return dim_list
+        dim_lists = []
+        for x in args:
+            if type(x) != dict: dim_list = x # If not a dict, return unchanged.
+            else:
+                dim_list = [placeholder for _ in range(len(self))]  
+                for dim, value in x.items():
+                    if duplicate_singletons:
+                        try: len(value)
+                        except: value = [value, value]
+                    dim_list[self.dim_names.index(dim)] = value
+            dim_lists.append(dim_list)
+        return dim_lists if len(dim_lists) > 1 else dim_lists[0]
 
     def _preflight_check(self, split_dims, eval_dims, sorted_indices):
         split_dims, eval_dims = self.idxify(split_dims, eval_dims)

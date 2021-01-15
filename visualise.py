@@ -2,20 +2,22 @@ from .utils import *
 import numpy as np
 import matplotlib as mpl
 import matplotlib.pyplot as plt
+from mpl_toolkits.mplot3d import Axes3D
 import mpl_toolkits.mplot3d.art3d as art3d
 import networkx as nx
 
-def show_samples(node, vis_dims, colour_dim=None, alpha=None, spark=False, subsample=None, ax=None):
+def show_samples(node, vis_dims, colour_dim=None, alpha=1, spark=False, subsample=None, ax=None):
     """
     Scatter plot across vis_dims of all the samples contained in node.
     """
     assert len(vis_dims) in (2,3)
-    vis_dims = node.source.idxify(vis_dims)
+    vis_dims = node.space.idxify(vis_dims)
     if colour_dim: raise NotImplementedError()
-    X = node.source.data[subsample_sorted_indices(node.sorted_indices, subsample)[:,0][:,None], vis_dims]
+    X = node.space.data[subsample_sorted_indices(node.sorted_indices, subsample)[:,0][:,None], vis_dims]
     lims = [[X[:,0].min(), X[:,0].max()], [X[:,1].min(), X[:,1].max()]]
     if ax is None: 
         if spark: ax = _ax_spark(ax, lims)
+        elif len(vis_dims) == 3: fig = plt.figure(); ax = fig.add_subplot(111, projection="3d")
         else: _, ax = plt.subplots()#figsize=(8,8))
     # Automatically calculate alpha.
     if alpha is None: alpha = 1 / len(X)**0.5
@@ -24,41 +26,43 @@ def show_samples(node, vis_dims, colour_dim=None, alpha=None, spark=False, subsa
         y = node.mean[vis_dims[1]]
         ax.plot(lims[0], [y,y], c='k')
     else:
-        ax.set_xlabel(node.source.dim_names[vis_dims[0]])
-        ax.set_ylabel(node.source.dim_names[vis_dims[1]])
+        ax.set_xlabel(node.space.dim_names[vis_dims[0]])
+        ax.set_ylabel(node.space.dim_names[vis_dims[1]])
         if len(vis_dims) == 3: 
             ax.scatter(X[:,0], X[:,1], X[:,2], s=0.25, c='k', alpha=alpha) 
-            ax.set_zlabel(node.source.dim_names[vis_dims[2]])
+            ax.set_zlabel(node.space.dim_names[vis_dims[2]])
         else:
             ax.scatter(X[:,0], X[:,1], s=0.25, c='k', alpha=alpha) 
         
-def show_lines(tree, attributes, max_depth=np.inf, maximise=False, show_spread=False, ax=None):
+def show_lines(model, attributes, vis_dim=None, max_depth=np.inf, maximise=False, show_spread=False, ax=None):
     """
-    Given a tree with one split_dim, display one or more attributes using horizontal lines for each node.
+    Given a one vis_dim, display one or more attributes using horizontal lines for each node.
     TODO: Adapt for slicing.
     """
-    assert len(tree.split_dims) == 1
+    if vis_dim is None: 
+        assert len(model.split_dims) == 1; vis_dim = model.split_dims[0] # Will fail if not a tree.
+    else: vis_dim = model.space.idxify(vis_dim)
     num_attributes = len(attributes)
     if show_spread: 
         attributes += [(('std',a[1]) if a[0]=='mean' else 
                        (('q1q3',a[1]) if a[0]=='median' else None)) 
                        for a in attributes]
     # Collect the list of nodes to show.
-    nodes = list(tree.propagate({}, mode=('max' if maximise else 'min'), max_depth=np.inf))
+    nodes = list(model.propagate({}, mode=('max' if maximise else 'min'), max_depth=np.inf))
     values = gather(nodes, *attributes)
+    if len(attributes) == 1: values = [values]
     # Create new axes if needed.
     if ax is None: _, ax = plt.subplots()#figsize=(9,8))
-    split_dim_name = tree.source.dim_names[tree.split_dims[0]]
-    ax.set_xlabel(split_dim_name)
+    vis_dim_name = model.space.dim_names[vis_dim]
+    ax.set_xlabel(vis_dim_name)
     # Colour cycle.
     colours = plt.rcParams['axes.prop_cycle'].by_key()['color']
     for i, attr in enumerate(attributes[:num_attributes]):
         for n, (node, value) in enumerate(zip(nodes, values[i])):
-            mn, mx = node.bb_max[tree.split_dims[0]] if maximise else node.bb_min[tree.split_dims[0]]
-            mn = max(mn, tree.root.bb_min[tree.split_dims[0],0])
-            mx = min(mx, tree.root.bb_min[tree.split_dims[0],1])
+            mn, mx = node.bb_max[vis_dim] if maximise else node.bb_min[vis_dim]
+            mn = max(mn, model.root.bb_min[vis_dim,0])
+            mx = min(mx, model.root.bb_min[vis_dim,1])
             ax.plot([mn,mx], [value, value], c=colours[i], label=(f'{attr[0]} of {attr[1]}' if n == 0 else None))
-            if maximise and n > 0: ax.plot([mn,mn], [value_last, value], c=colours[i]) # Vertical connecting lines.
             if show_spread: # Visualise spread using a rectangle behind.
                 if attr[0] == 'mean': # Use standard deviation.
                     std = values[i+num_attributes][n]
@@ -66,7 +70,6 @@ def show_lines(tree, attributes, max_depth=np.inf, maximise=False, show_spread=F
                 elif attr[0] == 'median': # Use quartiles.
                     spread_mn, spread_mx = values[i+num_attributes][n]
                 ax.add_patch(_make_rectangle([[mn,mx],[spread_mn,spread_mx]], colours[i], edge_colour=None, alpha=0.25))
-            value_last = value
     ax.legend()
     return ax
 
@@ -77,22 +80,22 @@ def show_rectangles(model, vis_dims=None, attribute=None,
     Compute the rectangular projections of nodes from model onto vis_dims, and colour according to attribute.
     Where multiple projections overlap, compute a marginal value using the weighted_average function from utils.
     """       
-    if vis_dims is None: vis_dims = model.split_dims # Will fail if not a tree.
-    else: vis_dims = model.source.idxify(vis_dims)
-    assert len(vis_dims) == 2, "Must have |vis_dims| = 2."
+    if vis_dims is None: vis_dims = model.split_dims
+    else: vis_dims = model.space.idxify(vis_dims)
+    assert len(vis_dims) == 2, "Must have |vis_dims| = 2." # Will fail if not a tree.
+    
     if vis_lims is not None: vis_lims = np.array(vis_lims) # Manually specify vis_lims.
     else: vis_lims = model.root.bb_min[vis_dims] # Otherwise use bb_min of root (for tree).
     # Set up axes.
     ax = _ax_setup(ax, model, vis_dims, attribute=attribute, slice_dict=slice_dict)
     # Collect the list of nodes to show.
-    if slice_dict != {}: slice_list = model.source.listify(slice_dict)
+    if slice_dict != {}: slice_list = model.space.listify(slice_dict)
     else: slice_list = slice_dict
     nodes = list(model.propagate(slice_list, mode=('max' if maximise else 'min'), max_depth=max_depth))        
     try:
         # Check if can avoid doing projection.
         # TODO: This doesn't catch cases when nodes are non-overlapping despite vis_dims != split_dims.
-        try: np.array_equal(vis_dims, model.split_dims) # Will fail if not a tree.
-        except: assert not(attribute) 
+        if not np.array_equal(vis_dims, model.split_dims): assert not(attribute)  # Will fail if not a tree.            
         values = gather(nodes, attribute)
         bbs = [(bb_clip(node.bb_max[vis_dims], vis_lims) if maximise 
                 else node.bb_min[vis_dims]) for node in nodes]
@@ -100,7 +103,7 @@ def show_rectangles(model, vis_dims=None, attribute=None,
         # Otherwise, projection required.
         assert attribute[0] == 'mean', 'Can only project mean attributes.'
         projections = project(nodes, vis_dims, maximise=maximise, resolution=project_resolution)
-        colour_dim = model.source.idxify(attribute[1])
+        colour_dim = model.space.idxify(attribute[1])
         # Ensure slice_dict is factored into the weighting.
         weight_dims = vis_dims.copy()
         if slice_dict != {}:
@@ -108,8 +111,8 @@ def show_rectangles(model, vis_dims=None, attribute=None,
                 if s is not None and type(s) not in (float, int) and d not in vis_dims:
                     weight_dims.append(d)
                     for i in range(len(projections)):
-                        projections[i][0] = np.vstack((projections[i][0], s))
-        values = [weighted_average(leaves, colour_dim, bb, weight_dims) for bb,leaves in projections]
+                        projections[i][0] = np.vstack((projections[i][0], s))        
+        values = [weighted_average(leaves, colour_dim, bb, weight_dims) for bb, leaves in projections]
         bbs = [bb_clip(bb[:len(vis_dims)], vis_lims) for bb,_ in projections]
     # Create rectangles.
     lims_and_values_to_rectangles(ax, bbs, 
@@ -123,8 +126,8 @@ def show_difference_rectangles(tree_a, tree_b, vis_dims, attribute, max_depth=np
     TODO: Adapt for slicing. 
     """
     if maximise: raise NotImplementedError("Need to clip bb_max intersection to *inner* of tree_a.root.bb_min and tree_b.root.bb_min")
-    assert tree_a.source == tree_b.source
-    vis_dims = tree_a.source.idxify(vis_dims)
+    assert tree_a.space == tree_b.space
+    vis_dims = tree_a.space.idxify(vis_dims)
     # Set up axes.
     ax = _ax_setup(ax, tree_a, vis_dims, attribute=attribute, diff=True, tree_b=tree_b)    
     # Collect the lists of nodes to show.
@@ -193,7 +196,7 @@ def show_transition_graph(model, layout_dims=None, highlight_path=None, alpha=Fa
     G = model.transition_graph
     if layout_dims is not None:
         assert len(layout_dims) == 2 
-        layout_dims = model.source.idxify(layout_dims)
+        layout_dims = model.space.idxify(layout_dims)
         if ax is None: ax = _ax_setup(ax, model, layout_dims)
         pos = {}; # fixed = []
         for node in G.nodes():
@@ -236,9 +239,9 @@ def show_shap_dependence(tree, node, wrt_dim, shap_dim, vis_dim=None, deint_dim=
     TODO: Remove interaction effects with "deint_dim"
     """
     if vis_dim is None: vis_dim = shap_dim
-    shap_dim, wrt_dim, vis_dim, deint_dim, colour_dim = tree.source.idxify(shap_dim, wrt_dim, vis_dim, deint_dim, colour_dim)
+    shap_dim, wrt_dim, vis_dim, deint_dim, colour_dim = tree.space.idxify(shap_dim, wrt_dim, vis_dim, deint_dim, colour_dim)
     # Compute SHAP values for all samples.
-    X = node.source.data[subsample_sorted_indices(node.sorted_indices, subsample)[:,0]]
+    X = node.space.data[subsample_sorted_indices(node.sorted_indices, subsample)[:,0]]
     if deint_dim is None: 
         shaps = tree.shap(X, shap_dims=tree.split_dims, wrt_dim=wrt_dim, maximise=False)
         d = np.array(list(zip(X[:,vis_dim], 
@@ -252,8 +255,8 @@ def show_shap_dependence(tree, node, wrt_dim, shap_dim, vis_dim=None, deint_dim=
     if colour_dim is not None: c = X[:,colour_dim]
     # Set up figure.
     _, ax = plt.subplots(figsize=(12/5,12/5))
-    ax.set_xlabel(tree.source.dim_names[vis_dim])    
-    ax.set_ylabel(f'SHAP for {tree.source.dim_names[shap_dim]} w.r.t. {tree.source.dim_names[wrt_dim]}')
+    ax.set_xlabel(tree.space.dim_names[vis_dim])    
+    ax.set_ylabel(f'SHAP for {tree.space.dim_names[shap_dim]} w.r.t. {tree.space.dim_names[wrt_dim]}')
     if colour_dim is None: colours = colour
     else:
         # cmap = (mpl.cm.copper,'copper')
@@ -264,13 +267,13 @@ def show_shap_dependence(tree, node, wrt_dim, shap_dim, vis_dim=None, deint_dim=
         # Create colour bar.
         norm = mpl.colors.Normalize(vmin=mn, vmax=mx)
         cbar = ax.figure.colorbar(mpl.cm.ScalarMappable(norm=norm, cmap=cmap[1]), ax=ax)
-        cbar.set_label(tree.source.dim_names[colour_dim], rotation=270)
+        cbar.set_label(tree.space.dim_names[colour_dim], rotation=270)
     ax.scatter(d[:,0], d[:,1], s=0.05, alpha=alpha, c=colours)
     return ax
 
 def _ax_setup(ax, model, vis_dims, attribute=None, diff=False, tree_b=None, derivs=False, slice_dict={}):
     if ax is None: _, ax = plt.subplots(figsize=(12,8))#(3,12/5))
-    vis_dim_names = [model.source.dim_names[v] for v in vis_dims]
+    vis_dim_names = [model.space.dim_names[v] for v in vis_dims]
     ax.set_xlabel(vis_dim_names[0]); ax.set_ylabel(vis_dim_names[1])
     title = model.name
     if diff: title += f' vs {tree_b.name}\n$\Delta$ in {attribute[0]} of {attribute[1]}'

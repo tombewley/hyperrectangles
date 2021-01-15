@@ -8,7 +8,7 @@ class Tree(Model):
     """
     def __init__(self, name, root, split_dims, eval_dims):
         Model.__init__(self, name, leaves=None) # Don't explicitly pass leaves because they're under root.
-        self.root, self.source, self.split_dims, self.eval_dims = root, root.source, split_dims, eval_dims
+        self.root, self.space, self.split_dims, self.eval_dims = root, root.space, split_dims, eval_dims
         self.leaves = self._get_leaves() # Collect the list of leaves.
 
     # Dunder/magic methods.
@@ -19,7 +19,8 @@ class Tree(Model):
         Overwrites Model.propagate using a more efficient tree-specific method.
         """
         if mode == "fuzzy": raise NotImplementedError()
-        x = self.source.listify(x)
+        x = self.space.listify(x)
+        assert len(x) == len(self.space)
         def _recurse(node, depth=0):
             if node is None: return set()
             if node.split_dim is None or depth >= max_depth: 
@@ -59,16 +60,12 @@ class Tree(Model):
         """ 
         Find the deepest common ancestor node of a set of nodes.
         Return a subtree rooted at this node, pruned so that subtree.leaves = nodes.
-        """
-        # Use deepcopy to ensure that this tree itself is not affected
-        # when we mess with the extracted subtree.
-        from copy import deepcopy
-        self_prev = deepcopy(self)
+        """        
         # First find the dca and create a subtree rooted here.
         def _recurse_find_dca(node):
             subtree = {node}
             found = nodes == subtree
-            if not found and node.split_dim:
+            if not found and node.split_dim is not None:
                 found_left, left = _recurse_find_dca(node.left)
                 if found_left: return found_left, left # Already found in left subtree.
                 found_right, right = _recurse_find_dca(node.right)
@@ -78,14 +75,14 @@ class Tree(Model):
             return found, (node if found else subtree)
         found, dca = _recurse_find_dca(self.root)
         if not found: return False 
-        subtree = Tree(name, dca, self.split_dims, self.eval_dims)
-        # Next iterate through the subtree and iteratively replace nodes with one child,
+        # Next iterate through the subtree rooted at dca and iteratively replace nodes with one child,
         # using that child itself. This is not quite the same as pruning.
-        def _recurse_minimise(node, path=''):
-            replacement = node if node in nodes else None
-            if node.split_dim:
-                replacement_left = _recurse_minimise(node.left, path+'0')
-                replacement_right = _recurse_minimise(node.right, path+'1')
+        subtree_split_dims = set()
+        def _recurse_minimise(node):
+            replacement = node if node in nodes_copy else None
+            if node.split_dim is not None:
+                replacement_left = _recurse_minimise(node.left)
+                replacement_right = _recurse_minimise(node.right)
                 if replacement_left != node.left: 
                     # Replace the left child, either with None or one of its children.
                     bb_max_left = node.left.bb_max
@@ -101,14 +98,18 @@ class Tree(Model):
                 if replacement is None:
                     # Determine how to replace this node.
                     if node.left is None:
-                        if node.right is not None: replacement = node.right
+                        if node.right is not None: replacement = node.right 
                     elif node.right is None: replacement = node.left
                     else: replacement = node      
+                # Store split_dims for subtree; generally a subset of those used in this tree.
+                if replacement is not None: subtree_split_dims.add(replacement.split_dim)
             return replacement
-        subtree.root = _recurse_minimise(subtree.root)
-        subtree.leaves = subtree._get_leaves() # Recompute leaves.
-        self = self_prev # Restore deepcopy.
-        return subtree
+        # Using deepcopy ensures that this tree is not affected when we mess with the subtree.
+        from copy import deepcopy
+        dca_copy, nodes_copy, eval_dims_copy = deepcopy((dca, nodes, self.eval_dims))
+        subtree_root = _recurse_minimise(dca_copy)
+        subtree_split_dims = sorted(list(subtree_split_dims - {None})) 
+        return Tree(name, subtree_root, subtree_split_dims, eval_dims_copy)
 
     def prune_mccp(self):
         """
@@ -121,7 +122,7 @@ class Tree(Model):
         # Subfunction for calculating costs is similar to the _recurse() function inside backprop_gains(),
         # except it takes the weighted sum of var_sum rather than per-feature, and realised only.
         def _recurse(node):
-            var_sum = np.dot(node.var_sum, self.source.global_var_scale)
+            var_sum = np.dot(node.var_sum, self.space.global_var_scale)
             if node.split_dim is None: return [var_sum], 1
             (left, num_left), (right, num_right) = _recurse(node.left), _recurse(node.right)
             var_sum_leaves, num_leaves = left + right, num_left + num_right

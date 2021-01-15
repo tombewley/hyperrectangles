@@ -53,19 +53,24 @@ def split_sorted_indices(sorted_indices, split_dim, split_index):
         right[other_dim] = sorted_indices[np.logical_not(put_left), other_dim]
     return np.array(left).T, np.array(right).T
 
-def bb_filter_sorted_indices(source, sorted_indices, bb):
+def bb_filter_sorted_indices(space, sorted_indices, bb):
     """
     Making use of the split_sorted_indices function, filter sorted_indices using a bb.
     Allow bb to be specified as a dict.
     """
-    for split_dim, lims in enumerate(source.listify(bb)):
+    for split_dim, lims in enumerate(space.listify(bb)):
         if lims is None: continue # If nothing specified for this lim.
         for lu, lim in enumerate(lims):
-            data = source.data[sorted_indices[:,split_dim], split_dim] # Must reselect each time.
-            split_index = bisect.bisect(data, lim)
-            left, right = split_sorted_indices(sorted_indices, split_dim, split_index)
-            if lu == 0: sorted_indices = right
-            else: sorted_indices = left
+            if np.isfinite(lim):
+                data = space.data[sorted_indices[:,split_dim], split_dim] # Must reselect each time.
+                if lu == 0:
+                    # For lower limit, bisect to the right.
+                    split_index = bisect.bisect_right(data, lim)
+                    _, sorted_indices = split_sorted_indices(sorted_indices, split_dim, split_index)
+                else:
+                    # For upper limit, bisect to the left.
+                    split_index = bisect.bisect_left(data, lim)
+                    sorted_indices, _ = split_sorted_indices(sorted_indices, split_dim, split_index)    
     return sorted_indices
 
 def subsample_sorted_indices(sorted_indices, size):
@@ -80,6 +85,13 @@ def subsample_sorted_indices(sorted_indices, size):
         keep = np.in1d(sorted_indices[:,dim], subset_indices)
         subset[dim] = sorted_indices[keep, dim]
     return np.array(subset).T
+
+def dataframe(space, sorted_indices, index_col):
+    """
+    Convert a set of sorted indices into a Pandas dataframe.
+    """
+    import pandas as pd
+    return pd.DataFrame(space.data[sorted_indices[:,0]], columns=space.dim_names).set_index(index_col)
 
 # ===============================
 # OPERATIONS ON BOUNDING BOXES
@@ -114,7 +126,7 @@ def project(nodes, dims, maximise=False, resolution=None):
     """
     Project a list of nodes onto dims and list all the regions of intersection.
     """
-    dims = nodes[0].source.idxify(dims)
+    dims = nodes[0].space.idxify(dims)
     # List all the unique thresholds along each dim.
     thresholds = [{} for _ in dims]    
     for node in nodes:
@@ -177,7 +189,7 @@ def round_sf(X, sf):
     try: return _r(X) # For single value.
     except: return f"({', '.join(_r(x) for x in X)})" # For iterable.
 
-def gather(nodes, *attributes):
+def gather(nodes, *attributes, transpose=False):
     """
     Gather attributes from each node in the provided list.
     """
@@ -185,7 +197,9 @@ def gather(nodes, *attributes):
     for attr in attributes:
         if attr is None: results.append([None])
         else: results.append([node[attr] for node in nodes])
-    return results if len(results) > 1 else results[0]
+    if len(results) == 1: return results[0]
+    if transpose: return list(zip(*results))
+    return results
 
 def weighted_average(nodes, dims, bb=None, intersect_dims=None):
     """
@@ -197,15 +211,17 @@ def weighted_average(nodes, dims, bb=None, intersect_dims=None):
     if len(nodes) == 1: return nodes[0].mean[dims]
     w = np.array([node.num_samples for node in nodes])
     if bb is not None:
+        zero_bb_width = (bb[:,1] - bb[:,0]) == 0
         r = []
         for node in nodes:
             node_bb = node.bb_min[intersect_dims]
+            inte = bb_intersect(node_bb, bb)
             node_bb_width = node_bb[:,1] - node_bb[:,0]
             node_bb_width_corr = node_bb_width.copy()
             node_bb_width_corr[node_bb_width==0] = 1 # Prevent div/0 error.
-            inte = bb_intersect(node_bb, bb)
             ratios = (inte[:,1] - inte[:,0]) / node_bb_width_corr
             ratios[node_bb_width==0] = 1 # Prevent zero ratio in same circumstance.
+            ratios[zero_bb_width] = 1 # Prevent zero ratio if bb is conditioned.
             r.append(np.prod(ratios))
         w = w * r
     return np.average([node.mean[dims] for node in nodes], axis=0, weights=w)

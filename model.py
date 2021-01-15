@@ -1,4 +1,5 @@
 from .utils import *
+from .rules import *
 import numpy as np
 import networkx as nx
 from itertools import chain, combinations
@@ -12,7 +13,7 @@ class Model:
     """
     def __init__(self, name, leaves):
         self.name = name
-        if leaves: self.leaves, self.source = leaves, leaves[0].source
+        if leaves: self.leaves, self.space = leaves, leaves[0].space
         # These attributes are computed on request.
         self.transition_matrix, self.transition_graph = None, None 
     
@@ -21,41 +22,44 @@ class Model:
     def __call__(self, *args, **kwargs): return self.propagate(*args, **kwargs)
     def __len__(self): return len(self.leaves)
 
-    def propagate(self, x, mode, contain=False, max_depth=np.inf):
+    def gather(self, *args, **kwargs): return gather(self.leaves, *args, **kwargs)
+    
+    def propagate(self, x, mode, contain=False, vector_out=False, max_depth=np.inf):
         """
-        Iterate through all leaves and check whether an input x is inside.
+        Iterate through all leaves and check membership of x.
         """
-        leaves = set()
+        output = [] if vector_out else set()
         for leaf in self.leaves:
             mu = leaf.membership(x, mode, contain)
-            if mu: leaves.add((leaf, mu) if mode == "fuzzy" else leaf)
-        return leaves
+            if vector_out: output.append(mu)
+            elif mu: output.add((leaf, mu) if mode == "fuzzy" else leaf)
+        return output
 
-    def populate(self, sorted_indices=None):
+    def populate(self, sorted_indices=None, keep_bb_min=False):
         """
         Populate all leaves in the model with data from a sorted_indices array.
         """
-        assert self.source.data, "Source must have data."
-        if sorted_indices is None: sorted_indices = self.source.all_sorted_indices
+        assert self.space.data.shape[0], "Space must have data."
+        if sorted_indices is None: sorted_indices = self.space.all_sorted_indices
         for leaf in self.leaves:
-            leaf.populate(bb_filter_sorted_indices(self.source, sorted_indices, leaf.bb_max))
+            leaf.populate(bb_filter_sorted_indices(self.space, sorted_indices, leaf.bb_max),
+                          keep_bb_min=keep_bb_min)
 
-    def predict(self, X, dims, maximise=False): 
+    def predict(self, X, dims, mode="min"): 
         """
         Propagate a set of samples through the model and get predictions along dims.
         """
-        dims = self.source.idxify(dims)
+        dims = self.space.idxify(dims)
         # Check if input has been provided in dictionary form (assume X[0] has the same form as the rest).
         if type(X) == dict: X = [X]
-        X = [self.source.listify(x) for x in X]
+        if not isinstance(X, np.ndarray): X = np.array(self.space.listify(*X))
         # Check if just one sample has been provided.
-        X = np.array(X); shp = X.shape
         if len(X.shape) == 1: X = X.reshape(1,-1)
-        assert X.shape[1] == len(self.source.dim_names), "Must match number of dims in source."
+        assert X.shape[1] == len(self.space), "Must match dimensionality of space."
         p = []
         # Get prediction for each sample.
         for x in X:
-            leaves = self.propagate(x, mode=('max' if maximise else 'min')); n = len(leaves)
+            leaves = self.propagate(x, mode=mode); n = len(leaves)
             if n == 0: p.append([None for _ in dims]) # If no leaves match X.
             elif n == 1: p.append(next(iter(leaves)).mean[dims]) # If leaf uniquely determined.
             else:
@@ -63,24 +67,24 @@ class Model:
                 p.append(weighted_average(leaves, dims))            
         return np.array(p)
 
-    def score(self, X, dims, ord=2): 
+    def score(self, X, dims, mode="min", ord=2): 
         """
         Score predictions on a set of inputs. All dims must be conditioned.
         """
-        dims = self.source.idxify(dims)
+        dims = self.space.idxify(dims)
         # Test if just one sample has been provided.
         X = np.array(X)
         if len(X.shape) == 1: X = X.reshape(1,-1)
-        assert X.shape[1] == len(self.source.dim_names), "Must match number of dims in source."
-        return np.linalg.norm(self.predict(X, dims) - X[:,dims], axis=0, ord=ord) / X.shape[0]
+        assert X.shape[1] == len(self.space), "Must match dimensionality of space."
+        return np.linalg.norm(self.predict(X, dims, mode) - X[:,dims], axis=0, ord=ord) / X.shape[0]
 
     def counterfactual(self, x, foil, delta_dims, fixed_dims=[],
                        access_mode='min', sort_by='L0_L2', return_all=False):
         """
         Return a list of minimal counterfactuals from x given foil, sorted by the provided method.
         """
-        delta_dims, fixed_dims = self.source.idxify(delta_dims, fixed_dims)
-        foil = self.source.listify(foil) 
+        delta_dims, fixed_dims = self.space.idxify(delta_dims, fixed_dims)
+        foil = self.space.listify(foil) 
         # Marginalise out all non-fixed dims in x.
         x_marg = x.copy(); x_marg[[d for d in range(len(x)) if d not in fixed_dims]] = None
         # Accessible leaves are those that intersect the marginalised x.
@@ -89,7 +93,7 @@ class Model:
         leaves_foil = self.propagate(foil, mode='mean') 
         # We are interested in leaves that are both accessible and foils.
         options = []
-        scale = np.sqrt(self.source.global_var_scale[delta_dims]) # NOTE: normalise by global standard deviation.
+        scale = np.sqrt(self.space.global_var_scale[delta_dims]) # NOTE: normalise by global standard deviation.
         for leaf in leaves_accessible & leaves_foil:
             # Find the closest point in each.
             x_closest = closest_point_in_bb(x, leaf.bb_min if access_mode=='min' else leaf.bb_max)
@@ -108,12 +112,12 @@ class Model:
         Count the transitions between all nodes and store in a matrix.
         The final two rows and cols correspond to initial/terminal.
         """
-        time_idx = self.source.dim_names.index('time') # Must have time dimension.
+        time_idx = self.space.dim_names.index('time') # Must have time dimension.
         n = len(self)
         self.transition_matrix = np.zeros((n+2, n+2), dtype=int)  # Extra rows and cols for initial/terminal.
-        # Iterate through the source data in temporal order.
+        # Iterate through data in temporal order.
         leaf_idx_last = n; self.transition_matrix[n, n+1] = -1 # To correct for first initial sample.
-        for x in self.source.data:
+        for x in self.space.data:
             leaves = self.propagate(x, mode='max') # NOTE: Do we really need to propagate here?
             assert len(leaves) == 1, "Can only compute transitions if leaves are disjoint and exhaustive."
             leaf_idx = self.leaves.index(next(iter(leaves)))
@@ -167,14 +171,14 @@ class Model:
         An implementation of TreeSHAP for computing local importances for shap_dims, based on Shapley values.
         NOTE: Not as heavily-optimised as the algorithm in the original paper.
         """
-        shap_dims, wrt_dim, ignore_dim = self.source.idxify(shap_dims, wrt_dim, ignore_dim)
+        shap_dims, wrt_dim, ignore_dim = self.space.idxify(shap_dims, wrt_dim, ignore_dim)
         shap_dims = set(shap_dims)
         assert wrt_dim not in shap_dims, "Can't include wrt_dim in the set of shap_dims!"
         shap_dims -= {ignore_dim}
         # Store the mean value along wrt_dim, and the population, for all leaves.
         means_and_pops = {l: (l.mean[wrt_dim], l.num_samples) for l in self.leaves}
         # Pre-store some reused values.
-        nones = [None for _ in self.source.dim_names]
+        nones = [None for _ in self.space.dim_names]
         num_shap_dims = len(shap_dims)
         w = [factorial(i) * factorial(num_shap_dims-i-1) / factorial(num_shap_dims) 
              for i in range(0,num_shap_dims)]

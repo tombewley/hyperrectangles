@@ -6,8 +6,8 @@ def rules(tree, pred_dims=None, sf=3, out_name=None):
     """
     Represent tree as a rule set with pred_dims as the consequent.
     """
-    pred_dims = tree.source.idxify(pred_dims)
-    dim_names, lines = tree.source.dim_names, []    
+    pred_dims = tree.space.idxify(pred_dims)
+    dim_names, lines = tree.space.dim_names, []    
     def _recurse(node, depth=0):
         i = "    " * depth # Indent.     
         if node is None: lines.append(f"{i}return None")       
@@ -26,24 +26,24 @@ def rules(tree, pred_dims=None, sf=3, out_name=None):
             for l in lines: f.write(l+"\n")
     return "\n".join(lines)
 
-def diagram(tree, pred_dims, sf=3, verbose=False, colour="#ffffff", out_name=None, png=False):
+def diagram(tree, pred_dims, sf=3, verbose=False, decision_node_colour="gray", out_name=None, png=False):
     """
     Represent tree as a pydot diagram with pred_dims and the consequent.
     """
-    pred_dims = tree.source.idxify(pred_dims)
-    dim_names = tree.source.dim_names; graph_spec = 'digraph Tree {node [shape=box];'
+    pred_dims = tree.space.idxify(pred_dims)
+    dim_names = tree.space.dim_names; graph_spec = 'digraph Tree {node [shape=box];'
     def _recurse(node, graph_spec, n=0, n_parent=0, dir_label="<"):
         if node is None: graph_spec += f'{n} [label="None"];'
         else:   
             ns = node.num_samples  
             mean = round_sf(node.mean[pred_dims], sf)
             std = round_sf(np.sqrt(np.diag(node.cov)[pred_dims]), sf) 
-            imp = f"{np.dot(node.var_sum[pred_dims], tree.source.global_var_scale[pred_dims]):.2E}"
+            imp = f"{np.dot(node.var_sum[pred_dims], tree.space.global_var_scale[pred_dims]):.2E}"
             if node.split_dim is not None:
                 # Decision node.
                 split = f'{dim_names[node.split_dim]}={round_sf(node.split_threshold, sf)}'
-                if verbose: graph_spec += f'{n} [label="mean: {mean}\nstd: {std}\nnum_samples: {ns}\nimpurity: {imp}\n-----\nsplit: {split}", style=filled, fillcolor="{colour}", fontname = "ETBembo"];'
-                else: graph_spec += f'{n} [label="{split}", style=filled, fillcolor="{colour}", fontname = "ETBembo"];'
+                if verbose: graph_spec += f'{n} [label="mean: {mean}\nstd: {std}\nnum_samples: {ns}\nimpurity: {imp}\n-----\nsplit: {split}", style=filled, fillcolor="{decision_node_colour}", fontname = "ETBembo"];'
+                else: graph_spec += f'{n} [label="{split}", style=filled, fillcolor="{decision_node_colour}", fontname = "ETBembo"];'
             else: 
                 # Leaf node.
                 graph_spec += f'{n} [label="mean: {mean}\nstd: {std}\nnum_samples: {ns}\nimpurity: {imp}", fontname = "ETBembo"];'
@@ -66,7 +66,7 @@ def rule(node, maximise=True, sf=3):
     """
     Describe the bounding box for one node.
     """
-    dim_names = node.source.dim_names; terms = []
+    dim_names = node.space.dim_names; terms = []
     for i, (mn, mx) in enumerate(node.bb_max if maximise else node.bb_min):
         do_mn, do_mx = mn != -np.inf, mx != np.inf
         if do_mn and do_mx:
@@ -81,8 +81,8 @@ def counterfactual(x, options, delta_dims, sf=3):
     Describe a set of counterfactual options.
     """
     if type(options) == tuple: options = [options]
-    delta_dims = options[0][0].source.idxify(delta_dims)
-    dim_names, operators, options_text = options[0][0].source.dim_names, [None,">=","<"], []    
+    delta_dims = options[0][0].space.idxify(delta_dims)
+    dim_names, operators, options_text = options[0][0].space.dim_names, [None,">=","<"], []    
     for leaf, x_closest, l0, l2 in options:
         terms = []
         for d, diff in enumerate(np.sign(x_closest - x)):
