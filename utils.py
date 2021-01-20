@@ -102,6 +102,8 @@ def bb_intersect(bb_a, bb_b):
     """
     l = np.maximum(bb_a[:,0], bb_b[:,0])
     u = np.minimum(bb_a[:,1], bb_b[:,1]) 
+    print("l=",l)
+    print("u=",u)
     if np.any(u-l < 0): return None # Return None if no overlap.
     return np.array([l, u]).T
 
@@ -185,9 +187,12 @@ def round_sf(X, sf):
     """
     Round a float to the given number of significant figures.
     """
-    def _r(x): return np.format_float_positional(x, precision=sf, unique=False, fractional=False, trim='k')
-    try: return _r(X) # For single value.
-    except: return f"({', '.join(_r(x) for x in X)})" # For iterable.
+    try: 
+        # For single value.
+        return np.format_float_positional(X, precision=sf, unique=False, fractional=False, trim='k') 
+    except: 
+        # For iterable.
+        return f"[{','.join(round_sf(x, sf) for x in X)}]" 
 
 def gather(nodes, *attributes, transpose=False):
     """
@@ -214,7 +219,7 @@ def weighted_average(nodes, dims, bb=None, intersect_dims=None):
         zero_bb_width = (bb[:,1] - bb[:,0]) == 0
         r = []
         for node in nodes:
-            node_bb = node.bb_min[intersect_dims]
+            node_bb = node.bb_min[intersect_dims] # NOTE: Always uses bb_min, not bb_max
             inte = bb_intersect(node_bb, bb)
             node_bb_width = node_bb[:,1] - node_bb[:,0]
             node_bb_width_corr = node_bb_width.copy()

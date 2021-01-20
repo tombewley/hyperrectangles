@@ -15,7 +15,7 @@ class Model:
         self.name = name
         if leaves: self.leaves, self.space = leaves, leaves[0].space
         # These attributes are computed on request.
-        self.transition_matrix, self.transition_graph = None, None 
+        self.transitions, self.transition_graph = None, None 
     
     # Dunder/magic methods.
     def __repr__(self): return f"{self.name}: flat model with {len(self)} leaves"
@@ -112,32 +112,44 @@ class Model:
         Count the transitions between all nodes and store in a matrix.
         The final two rows and cols correspond to initial/terminal.
         """
-        time_idx = self.space.dim_names.index('time') # Must have time dimension.
+        print("Warning: Transition analysis uses all of self.space.data, so is not suitable for local models")
+        time_idx = self.space.dim_names.index("time") # Must have time dimension.
         n = len(self)
-        self.transition_matrix = np.zeros((n+2, n+2), dtype=int)  # Extra rows and cols for initial/terminal.
+        self.sequences = []
         # Iterate through data in temporal order.
-        leaf_idx_last = n; self.transition_matrix[n, n+1] = -1 # To correct for first initial sample.
-        for x in self.space.data:
-            leaves = self.propagate(x, mode='max') # NOTE: Do we really need to propagate here?
+        for x_idx, x in enumerate(self.space.data):
+            leaves = self.propagate(x, mode="max") # NOTE: is this more efficient than lookup?
             assert len(leaves) == 1, "Can only compute transitions if leaves are disjoint and exhaustive."
             leaf_idx = self.leaves.index(next(iter(leaves)))
-            if x[time_idx] == 0: # i.e. start of an episode.
-                self.transition_matrix[n, leaf_idx] += 1 # Initial.
-                self.transition_matrix[leaf_idx_last, n+1] += 1 # Previous terminal.
-                leaf_idx_last = leaf_idx
-            elif leaf_idx != leaf_idx_last:
-                self.transition_matrix[leaf_idx_last, leaf_idx] += 1 # Transition.
-                leaf_idx_last = leaf_idx
-        self.transition_matrix[leaf_idx_last, n+1] += 1 # Final terminal sample.
-        return self.transition_matrix
+            time = x[time_idx]
+            if time == 0 or leaf_idx != current_seq["leaf"]: # Start of ep or transition.
+                if time == 0: prev_leaf_idx = n
+                else: 
+                    assert time == time_last + 1, "Data must be temporally ordered"
+                    prev_leaf_idx = current_seq["leaf"]
+                    current_seq["next"] = leaf_idx
+                try: self.sequences.append(current_seq) # Store previous sequence.
+                except: pass # This happens on the very first sample.
+                current_seq = {"prev":prev_leaf_idx, "idx":x_idx, "leaf":leaf_idx, "len":0, "next":n+1}
+            time_last = time; current_seq["len"] += 1
+        self.sequences.append(current_seq) # Store very last sequence.
+        # Count transitions to build matrix.
+        self.transitions = np.zeros((n+2, n+2), dtype=int)
+        for l in range(n): 
+            seq = [s for s in self.sequences if s["leaf"] == l]
+            self.transitions[l] = [len([True for s in seq if s["next"] == ll]) for ll in range(n+2)]                
+        seq = [s for s in self.sequences if s["prev"] == n] # Do initial separately.
+        self.transitions[n] = [len([True for s in seq if s["leaf"] == ll]) for ll in range(n+2)] 
+
+        for l in range(n): assert self.transitions[l].sum() == self.transitions[:,l].sum()
 
     def make_transition_graph(self):
         """
-        Use transition_matrix to build a networkx graph with a node for each leaf.
+        Use transitions to build a networkx graph with a node for each leaf.
         """
-        # Need transition matrix first.
-        if self.transition_matrix is None: self.make_transition_matrix()
-        mx = self.transition_matrix.max() # Count for single most common transition.
+        # Need transitions first.
+        if self.transitions is None: self.make_transition_matrix()
+        mx = self.transitions.max() # Count for single most common transition.
         G = nx.DiGraph()
         # Create nodes: one for each leaf plus initial and terminal.
         nodes = self.leaves + ['I', 'T']
@@ -148,8 +160,8 @@ class Model:
                          for i, l in enumerate(nodes)])
         # Create edges.
         for i, node in enumerate(G.nodes): 
-            count_sum = self.transition_matrix[i].sum()
-            for j, count in enumerate(self.transition_matrix[i]):
+            count_sum = self.transitions[i].sum()
+            for j, count in enumerate(self.transitions[i]):
                 if count > 0:
                     G.add_edge(node, nodes[j], count=count, 
                                                alpha=count/mx, 

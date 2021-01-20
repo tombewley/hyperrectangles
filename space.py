@@ -36,8 +36,8 @@ class Space:
         if bb is not None: sorted_indices = bb_filter_sorted_indices(self, sorted_indices, bb)
         return subsample_sorted_indices(sorted_indices, subsample)
 
-    def tree_depth_first(self, name, split_dims, eval_dims, sorted_indices=None, max_depth=np.inf, 
-                         corr=False, one_sided=False, pop_power=.5):
+    def tree_depth_first(self, name, split_dims, eval_dims, sorted_indices=None, 
+                         max_depth=np.inf, min_samples_leaf=1, corr=False, one_sided=False, pop_power=.5):
         """
         Grow a tree depth-first to max_depth using samples specified by sorted_indices. 
         """
@@ -46,14 +46,15 @@ class Space:
         def _recurse(node, depth):
             if node is None: return # This will be the case 50% of the time if doing one-sided.
             if depth < max_depth:
-                ok, _ = node._do_greedy_split(split_dims, eval_dims, corr, one_sided, pop_power)
+                ok = node._do_greedy_split(split_dims, eval_dims, min_samples_leaf, corr, one_sided, pop_power)
                 if ok: _recurse(node.left, depth+1); _recurse(node.right, depth+1)
         root = Node(self, sorted_indices=sorted_indices) 
         _recurse(root, 0)
         self.models[name] = Tree(name, root, split_dims, eval_dims)
         return self.models[name]
 
-    def tree_best_first(self, name, split_dims, eval_dims, sorted_indices=None, max_num_leaves=np.inf): 
+    def tree_best_first(self, name, split_dims, eval_dims, sorted_indices=None, 
+                        max_num_leaves=np.inf, min_samples_leaf=1): 
         """
         Grow a tree best-first to max_num_leaves using samples specified by sorted_indices. 
         """
@@ -67,7 +68,7 @@ class Space:
                 queue.sort(key=lambda x: x[1], reverse=True)
                 # Try to split the highest-priority leaf.
                 node, _ = queue.pop(0) 
-                ok, _ = node._do_greedy_split(split_dims, eval_dims)
+                ok = node._do_greedy_split(split_dims, eval_dims, min_samples_leaf)
                 if ok:    
                     pbar.update(1); num_leaves += 1
                     # If split made, add the two new leaves to the queue.
@@ -146,7 +147,7 @@ class Space:
         """
         dims_idx = [] 
         for dims in args:
-            if type(dims) == list:
+            if type(dims) in (list, tuple):
                 dims = [self.dim_names.index(d) if type(d) != int else d for d in dims]
             elif type(dims) == str: dims = self.dim_names.index(dims) 
             dims_idx.append(dims)

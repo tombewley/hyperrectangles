@@ -19,7 +19,7 @@ def rules(tree, pred_dims=None, sf=3, out_name=None):
         else: 
             if pred_dims:
                 lines.append(f"{i}return {round_sf(node.mean[pred_dims], sf)} (n={node.num_samples}, std={round_sf(np.sqrt(np.diag(node.cov)[pred_dims]), sf)})")
-            else: lines.append(f"{i}return")
+            else: lines.append(f"{i}return (n={node.num_samples})")
     _recurse(tree.root)
     if out_name is not None:  # If out_name specified, write out.
         with open(out_name+".py", "w", encoding="utf-8") as f:
@@ -35,18 +35,22 @@ def diagram(tree, pred_dims, sf=3, verbose=False, decision_node_colour="gray", o
     def _recurse(node, graph_spec, n=0, n_parent=0, dir_label="<"):
         if node is None: graph_spec += f'{n} [label="None"];'
         else:   
-            ns = node.num_samples  
-            mean = round_sf(node.mean[pred_dims], sf)
-            std = round_sf(np.sqrt(np.diag(node.cov)[pred_dims]), sf) 
-            imp = f"{np.dot(node.var_sum[pred_dims], tree.space.global_var_scale[pred_dims]):.2E}"
             if node.split_dim is not None:
-                # Decision node.
                 split = f'{dim_names[node.split_dim]}={round_sf(node.split_threshold, sf)}'
-                if verbose: graph_spec += f'{n} [label="mean: {mean}\nstd: {std}\nnum_samples: {ns}\nimpurity: {imp}\n-----\nsplit: {split}", style=filled, fillcolor="{decision_node_colour}", fontname = "ETBembo"];'
-                else: graph_spec += f'{n} [label="{split}", style=filled, fillcolor="{decision_node_colour}", fontname = "ETBembo"];'
+            graph_spec += f'{n} [label="'
+            if node.split_dim is None or verbose: 
+                # Mean, standard deviation, range (from bb_min)
+                for d, (mean, std, rng) in enumerate(zip(node.mean[pred_dims], np.sqrt(np.diag(node.cov)[pred_dims]), node.bb_min[pred_dims])):
+                    graph_spec += f'{dim_names[pred_dims[d]]}: {round_sf(mean, sf)} (s={round_sf(std, sf)},r={round_sf(rng, sf)})\n'
+                # Num samples and impurity
+                ns = node.num_samples  
+                imp = f"{np.dot(node.var_sum[pred_dims], tree.space.global_var_scale[pred_dims]):.2E}"
+                graph_spec += f'num_samples: {ns}\nimpurity: {imp}'
+                if node.split_dim is not None:
+                    f'\n-----\nsplit: {split}", style=filled, fillcolor="{decision_node_colour}' # Decision node (verbose)
             else: 
-                # Leaf node.
-                graph_spec += f'{n} [label="mean: {mean}\nstd: {std}\nnum_samples: {ns}\nimpurity: {imp}", fontname = "ETBembo"];'
+                graph_spec += f'{split}", style=filled, fillcolor="{decision_node_colour}' # Decision node (non-verbose)
+            graph_spec += '", fontname = "sans-serif"];'
             n_here = n
             if n_here > 0: 
                 # Edge.

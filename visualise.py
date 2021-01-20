@@ -101,7 +101,8 @@ def show_rectangles(model, vis_dims=None, attribute=None,
                 else node.bb_min[vis_dims]) for node in nodes]
     except:
         # Otherwise, projection required.
-        assert attribute[0] == 'mean', 'Can only project mean attributes.'
+        assert attribute[0] == "mean", "Can only project mean attributes."
+        assert maximise == False, "Can only project with bb_min" 
         projections = project(nodes, vis_dims, maximise=maximise, resolution=project_resolution)
         colour_dim = model.space.idxify(attribute[1])
         # Ensure slice_dict is factored into the weighting.
@@ -211,8 +212,8 @@ def show_transition_graph(model, layout_dims=None, highlight_path=None, alpha=Fa
         pos = nx.spring_layout(G)
         if ax is None: _, ax = plt.subplots()#figsize=(12,12))    
     # Draw nodes and labels.
-    nx.draw_networkx_nodes(G, pos=pos, node_color=["#a8caff" for _ in range(len(model))] + ["#74ad83","#e37b40"])
-    nx.draw_networkx_labels(G, pos=pos, labels=nx.get_node_attributes(G, "idx"))
+    nx.draw_networkx_nodes(G, pos=pos, node_color=["#a8caff" for _ in range(len(model))] + ["#74ad83","#e37b40"], ax=ax)
+    nx.draw_networkx_labels(G, pos=pos, labels=nx.get_node_attributes(G, "idx"), ax=ax)
     # If highlight_path specified, highlight it in a different colour.
     if highlight_path is not None:
         h = set((highlight_path[i], highlight_path[i+1]) for i in range(len(highlight_path)-1))
@@ -221,7 +222,7 @@ def show_transition_graph(model, layout_dims=None, highlight_path=None, alpha=Fa
             if edge in h: edge_colours.append("r")
             else: edge_colours.append("k")
     else: edge_colours = ["k" for _ in G.edges]
-    arcs = nx.draw_networkx_edges(G, pos=pos, connectionstyle="arc3,rad=0.2", edge_color=edge_colours)
+    arcs = nx.draw_networkx_edges(G, pos=pos, connectionstyle="arc3,rad=0.2", edge_color=edge_colours, ax=ax)
     # Set alpha individually for each non-highlighted edge.
     if alpha:
         for arc, (_,_,attr), c in zip(arcs, G.edges(data=True), edge_colours):
