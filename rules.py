@@ -26,11 +26,11 @@ def rules(tree, pred_dims=None, sf=3, out_name=None):
             for l in lines: f.write(l+"\n")
     return "\n".join(lines)
 
-def diagram(tree, pred_dims, sf=3, verbose=False, decision_node_colour="gray", out_name=None, png=False):
+def diagram(tree, pred_dims=None, sf=3, verbose=False, decision_node_colour="gray", out_name=None, png=False):
     """
     Represent tree as a pydot diagram with pred_dims and the consequent.
     """
-    pred_dims = tree.space.idxify(pred_dims)
+    if pred_dims: pred_dims = tree.space.idxify(pred_dims)
     dim_names = tree.space.dim_names; graph_spec = 'digraph Tree {node [shape=box];'
     def _recurse(node, graph_spec, n=0, n_parent=0, dir_label="<"):
         if node is None: graph_spec += f'{n} [label="None"];'
@@ -39,15 +39,19 @@ def diagram(tree, pred_dims, sf=3, verbose=False, decision_node_colour="gray", o
                 split = f'{dim_names[node.split_dim]}={round_sf(node.split_threshold, sf)}'
             graph_spec += f'{n} [label="'
             if node.split_dim is None or verbose: 
+                # Leaf number.
+                if node.split_dim is None: graph_spec += f'({tree.leaves.index(node)}) '
                 # Mean, standard deviation, range (from bb_min)
-                for d, (mean, std, rng) in enumerate(zip(node.mean[pred_dims], np.sqrt(np.diag(node.cov)[pred_dims]), node.bb_min[pred_dims])):
-                    graph_spec += f'{dim_names[pred_dims[d]]}: {round_sf(mean, sf)} (s={round_sf(std, sf)},r={round_sf(rng, sf)})\n'
+                if pred_dims:
+                    for d, (mean, std, rng) in enumerate(zip(node.mean[pred_dims], np.sqrt(np.diag(node.cov)[pred_dims]), node.bb_min[pred_dims])):
+                        graph_spec += f'{dim_names[pred_dims[d]]}: {round_sf(mean, sf)} (s={round_sf(std, sf)},r={round_sf(rng, sf)})\n'
                 # Num samples and impurity
-                ns = node.num_samples  
-                imp = f"{np.dot(node.var_sum[pred_dims], tree.space.global_var_scale[pred_dims]):.2E}"
-                graph_spec += f'num_samples: {ns}\nimpurity: {imp}'
+                ns = node.num_samples; graph_spec += f'n={ns}'
+                if pred_dims: 
+                    imp = f"{np.dot(node.var_sum[pred_dims], tree.space.global_var_scale[pred_dims]):.2E}"
+                    graph_spec += f'\nimpurity: {imp}'
                 if node.split_dim is not None:
-                    f'\n-----\nsplit: {split}", style=filled, fillcolor="{decision_node_colour}' # Decision node (verbose)
+                    graph_spec += f'\n-----\nsplit: {split}", style=filled, fillcolor="{decision_node_colour}' # Decision node (verbose)
             else: 
                 graph_spec += f'{split}", style=filled, fillcolor="{decision_node_colour}' # Decision node (non-verbose)
             graph_spec += '", fontname = "sans-serif"];'

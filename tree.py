@@ -9,16 +9,37 @@ class Tree(Model):
     def __init__(self, name, root, split_dims, eval_dims):
         Model.__init__(self, name, leaves=None) # Don't explicitly pass leaves because they're under root.
         self.root, self.space, self.split_dims, self.eval_dims = root, root.space, split_dims, eval_dims
-        self.leaves = self._get_leaves() # Collect the list of leaves.
+        self.leaves = self._get_nodes(leaves_only=True) # Collect the list of leaves.
+        # Split queue for best-first growth.
+        self.split_queue = [(leaf, np.dot(leaf.var_sum[self.eval_dims], self.space.global_var_scale[self.eval_dims])) for leaf in self.leaves]
+        self.split_queue.sort(key=lambda x: x[1], reverse=True)
 
     # Dunder/magic methods.
     def __repr__(self): return f"{self.name}: tree model with {len(self.leaves)} leaves"
 
-    def propagate(self, x, mode, contain=False, max_depth=np.inf):
+    def populate(self, sorted_indices="all", keep_bb_min=False): 
+        """
+        Populate all nodes in the tree with data from a sorted_indices array.
+        """
+        assert self.space.data.shape[0], "Space must have data."
+        if sorted_indices is "all": sorted_indices = self.space.all_sorted_indices
+        def _recurse(node, si):
+            node.populate(si, keep_bb_min)
+            if node.split_dim is None: return
+            if sorted_indices is None: left, right = None, None
+            else:
+                split_index = bisect.bisect(self.space.data[si[:,node.split_dim], node.split_dim], node.split_threshold)
+                left, right = split_sorted_indices(si, node.split_dim, split_index)
+            _recurse(node.left, left); _recurse(node.right, right)
+        _recurse(self.root, sorted_indices)
+        return self
+
+    def propagate(self, x, mode, contain=False, max_depth=np.inf, path=False):
         """
         Overwrites Model.propagate using a more efficient tree-specific method.
         """
         if mode == "fuzzy": raise NotImplementedError()
+        if path and mode != "max": raise NotImplementedError("Can only return path in maximise mode.")
         x = self.space.listify(x)
         assert len(x) == len(self.space)
         def _recurse(node, depth=0):
@@ -35,8 +56,8 @@ class Tree(Model):
                         return _recurse(node.left, depth+1) | _recurse(node.right, depth+1)
                     # If this dim has a scalar, compare to the threshold.
                     if xd >= t: 
-                        return _recurse(node.right, depth+1)
-                    else: return _recurse(node.left, depth+1)
+                        return _recurse(node.right, depth+1) | ({node} if path else set())
+                    else: return _recurse(node.left, depth+1) | ({node} if path else set())
                 except:
                     # If this dim has (min, max) interval, compare each to the threshold.
                     compare = [i >= t for i in xd]
@@ -46,15 +67,96 @@ class Tree(Model):
                     if (compare[0] if contain else compare[1]):
                         right = _recurse(node.right, depth+1)
                     else: right = set()
-                    return left | right
+                    return left | right | ({node} if path else {})
         return _recurse(self.root)
 
-    def populate(self, sorted_indices=None): 
+    def split_next_best(self, min_samples_leaf, pbar=None): 
         """
-        Doesn't have to be too different to the method for Model, but can take advantage of the fact
-        each node only needs to consider the indices of its parent.
+        Try to split the first leaf in self.split_queue.
         """
-        raise NotImplementedError() 
+        node, _ = self.split_queue.pop(0) 
+        ok = node._do_greedy_split(self.split_dims, self.eval_dims, min_samples_leaf)
+        if ok:    
+            # If split made, store the two new leaves and add them to the queue.
+            if pbar: pbar.update(1) 
+            parent_index = self.leaves.index(node)
+            self.leaves.pop(parent_index) # First remove the parent.
+            self.leaves += [node.left, node.right]
+            self.split_queue += [(node.left,  np.dot(node.left.var_sum[self.eval_dims], self.space.global_var_scale[self.eval_dims])),
+                                 (node.right, np.dot(node.right.var_sum[self.eval_dims], self.space.global_var_scale[self.eval_dims]))]
+            self.split_queue.sort(key=lambda x: x[1], reverse=True) # Sort ready for next time.
+            return parent_index
+        return None
+
+    def split_next_best_transition(self, sim_params, pbar=None, plot=False):
+        """
+        Recompute transitions, ...
+        """
+
+        ###############
+        # self.eval_dims = []
+        ###############
+
+        print(self.eval_dims)
+
+        assert self.root.num_samples == len(self.space.data), "Must use entire dataset."
+        if len(self.eval_dims) == 0: sim_dim = None
+        elif len(self.eval_dims) == 1: sim_dim = self.eval_dims[0]
+        else: raise ValueError("Can only use one eval_dim as sim_dim for transition splitting.")
+        # Get up-to-date successor leaf for every sample. For terminal, successor leaf = None.
+        succ_leaf_all = np.array([next(iter(self.propagate(x, mode="max"))) if x[1] != 0 else None for x in self.space.data[1:]] + [None])
+        # Recompute transition impurities for every leaf.
+        t_split_queue = []
+        for l in self.leaves:
+            indices = l.sorted_indices[:,0]
+            sim_data = [None for _ in indices] if sim_dim is None else self.space.data[indices,sim_dim]
+            succ_leaf = succ_leaf_all[indices]
+            l.t_imp_sum = sum(transition_imp_contrib(x, s, sim_data, succ_leaf, sim_params) for x, s in zip(sim_data, succ_leaf))
+            t_split_queue.append((l, l.t_imp_sum))
+        t_split_queue.sort(key=lambda x: x[1], reverse=True) # Sort.
+        # Pick the first leaf in t_split_queue to split.
+        node, _ = t_split_queue.pop(0) 
+        # Sequences of num_samples for left and right children. Used to normalise impurities.
+        n = np.arange(node.num_samples)
+        n = np.vstack((n, np.flip(n+1)))
+        n[0,0] = 1 # Prevent div/0 error.
+
+        if plot:
+            import matplotlib.pyplot as plt
+            from .visualise import show_rectangles
+            _, ax = plt.subplots()
+
+        splits = []
+        for split_dim in self.split_dims:
+            imp_sum = node._eval_splits_one_dim_transition(split_dim, sim_dim, succ_leaf_all, sim_params)
+            # Split quality = reduction in population-normalised impurity sum.
+            imp = imp_sum[:,:-1] / n
+            qual = imp[1,0] - imp[:,1:].sum(axis=0)
+            # Greedy split is the one with the highest quality.
+            greedy = np.argmax(qual)      
+            splits.append((split_dim, greedy+1, qual[greedy]))
+
+            if plot:
+                x_plot = self.space.data[node.sorted_indices[:,split_dim],split_dim]; x_plot = (x_plot[:-1] + x_plot[1:]) / 2
+                if split_dim == 2: ax2 = ax.twinx(); ax2.plot(x_plot, qual)
+                if split_dim == 3: ax2 = ax.twiny(); ax2.plot(qual, x_plot)
+
+        # Sort splits by quality and choose the single best.
+        split_dim, split_index, qual = sorted(splits, key=lambda x: x[2], reverse=True)[0]
+        if qual > 0:
+            print(split_dim, qual)
+            # If split made, store the two new leaves.
+            node._do_manual_split(split_dim, split_index=split_index)
+            if pbar: pbar.update(1) 
+            self.leaves.pop(self.leaves.index(node)) # First remove the node that's been split.
+            self.leaves += [node.left, node.right]
+
+            if plot:
+                show_rectangles(self, vis_dims=["x","y"], maximise=True, ax=ax)
+                ax.scatter(self.space.data[:,2], self.space.data[:,3])
+
+            return True
+        return False
 
     def dca_subtree(self, name, nodes): 
         """ 
@@ -133,7 +235,7 @@ class Tree(Model):
         # Remove the subtree below the lowest-cost node.
         node = sorted(costs, key=lambda x: x[1])[0][0]
         node.split_dim, node.left, node.right, node.gains = None, None, None, {}
-        self.leaves = self._get_leaves() # Update the list of leaves.
+        self.leaves = self._get_nodes(leaves_only=True) # Update the list of leaves.
 
     def backprop_gains(self):
         """
@@ -163,11 +265,27 @@ class Tree(Model):
             return node.gains, node.subtree_size
         _recurse(self.root)
 
-    def _get_leaves(self):
-        leaves = []
+    def clone(self):     
+        """
+        Clone this tree, retaining only the reference to the space.
+        """
+        from copy import deepcopy
+        clone = deepcopy(self)
+        clone.space = self.space
+        def _recurse(node):
+            node.space = self.space
+            if node.split_dim is None: return
+            _recurse(node.left); _recurse(node.right)
+        _recurse(clone.root)
+        return clone
+
+    def _get_nodes(self, leaves_only=False):
+        nodes = []
         def _recurse(node):
             if node is None: return
-            if node.split_dim is None: leaves.append(node)
-            else: _recurse(node.left); _recurse(node.right)
+            if node.split_dim: 
+                if not leaves_only: nodes.append(node)
+                _recurse(node.left); _recurse(node.right)
+            else: nodes.append(node)
         _recurse(self.root)
-        return leaves
+        return nodes

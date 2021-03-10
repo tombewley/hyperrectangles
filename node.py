@@ -38,8 +38,9 @@ class Node:
     def __contains__(self, idx): return idx in self.sorted_indices[:,0] 
 
     def data(self, *dims): 
-        if not dims: dims = None
-        return self.space.data[self.sorted_indices[:,0][:,None], self.space.idxify(dims)].squeeze()
+        if dims: num_dims = len(dims)
+        else: dims = None; num_dims = len(self.space)
+        return self.space.data[self.sorted_indices[:,0][:,None], self.space.idxify(dims)].reshape(-1,num_dims)
     
     def populate(self, sorted_indices, keep_bb_min):
         """
@@ -61,7 +62,7 @@ class Node:
         try: self.cov
         except: self.cov = np.zeros((num_dims, num_dims))
         self.cov_sum = self.cov * self.num_samples
-        self.var_sum = np.diag(self.cov_sum)
+        self.var_sum = np.diag(self.cov_sum)      
 
     def membership(self, x, mode, contain=False):
         """
@@ -167,16 +168,21 @@ class Node:
             except: pass
         return d
 
-    def _do_manual_split(self, split_dim, split_threshold):
+    def _do_manual_split(self, split_dim, split_threshold=None, split_index=None):
         """
-        Split using a manually-defined split_dim and split_threshold.
+        Split using a manually-defined split_dim and split_threshold or split_index.
         """
-        if not(self.bb_max[split_dim][0] <= split_threshold <= self.bb_max[split_dim][1]): return False
-        self.split_dim, self.split_threshold = split_dim, split_threshold
-        # Split samples.
-        data = self.space.data[self.sorted_indices[:,self.split_dim], self.split_dim]
-        split_index = bisect.bisect(data, self.split_threshold)
-        left, right = split_sorted_indices(self.sorted_indices, self.split_dim, split_index)
+        if split_threshold is not None:
+            if not(self.bb_max[split_dim][0] <= split_threshold <= self.bb_max[split_dim][1]): return False
+            self.split_dim, self.split_threshold = split_dim, split_threshold
+            # Split samples.
+            data = self.space.data[self.sorted_indices[:,self.split_dim], self.split_dim]
+            split_index = bisect.bisect(data, self.split_threshold)
+            left, right = split_sorted_indices(self.sorted_indices, self.split_dim, split_index)
+        else:
+            self.split_dim = split_dim
+            left, right = split_sorted_indices(self.sorted_indices, self.split_dim, split_index)
+            self.split_threshold = (self.space.data[left[-1,split_dim],split_dim] + self.space.data[right[0,split_dim],split_dim]) / 2
         # Split bounding box.
         bb_max_left = self.bb_max.copy(); bb_max_left[self.split_dim,1] = self.split_threshold
         bb_max_right = self.bb_max.copy(); bb_max_right[self.split_dim,0] = self.split_threshold
@@ -194,9 +200,11 @@ class Node:
             splits, extra = self._find_greedy_splits(split_dims, eval_dims, min_samples_leaf, corr, one_sided, pop_power)
             if splits:
                 # Sort splits by quality and choose the single best.
-                split_dim, split_point, qual, index, (left, right) = sorted(splits, key=lambda x: x[2], reverse=True)[0]        
+                split_dim, split_index, qual, index = sorted(splits, key=lambda x: x[2], reverse=True)[0]        
                 if qual > 0:
                     self.split_dim = split_dim
+                    # Split sorted indices at index.
+                    left, right = split_sorted_indices(self.sorted_indices, self.split_dim, split_index)
                     # Compute numerical threshold to split at: midpoint of samples either side.
                     self.split_threshold = (self.space.data[left[-1,split_dim],split_dim] + self.space.data[right[0,split_dim],split_dim]) / 2
                     if one_sided: # Only create the child for which the split is made.
@@ -225,8 +233,13 @@ class Node:
             n = np.vstack((n, np.flip(n+1)))[:,:,None,None]
         splits, extra = [], []
         for split_dim in split_dims:
-            # Cannot split on a dim if there is no variance, so skip.
-            if self.var_sum[split_dim] == 0: continue
+            # Apply two kinds of constraint to the split point:
+            #   (1) Must be a "threshold" point where the samples either side do not have equal values.
+            valid_split_indices = np.unique(self.space.data[self.sorted_indices[:,split_dim][:,None],split_dim], return_index=True)[1]
+            #   (2) Must obey min_samples_leaf.
+            valid_split_indices = [s for s in valid_split_indices if s >= min_samples_leaf and s <= self.num_samples-min_samples_leaf]
+            # Cannot split on a dim if there are no valid split points, so skip.
+            if valid_split_indices == []: extra.append(np.nan); continue
             # Evaluate splits along this dim, returning (co)variance sums.
             cov_or_var_sum = self._eval_splits_one_dim(split_dim, eval_dims, min_samples_leaf, cov=corr)
             if corr: 
@@ -239,8 +252,8 @@ class Node:
                 # r2_scaled = r2 * n / self.num_samples     
                 if one_sided:           
                     # Split quality = maximum value of (R^2 * log2(population-1)**pop_power).
-                    right, split_point, d1, d2 = np.unravel_index(np.nanargmax(r2_scaled), r2_scaled.shape)
-                    qual_max = r2_scaled[(right, split_point, d1, d2)] - r2_scaled[(1, 0, d1, d2)]
+                    right, split_index, d1, d2 = np.unravel_index(np.nanargmax(r2_scaled), r2_scaled.shape)
+                    qual_max = r2_scaled[(right, split_index, d1, d2)] - r2_scaled[(1, 0, d1, d2)]
                     extra.append(r2_scaled) # Extra = r2_scaled at all points.
                 else:
                     pca = [[np.linalg.eig(cov_c_n) if not np.isnan(cov_c_n).any() else None
@@ -252,18 +265,16 @@ class Node:
                     raise NotImplementedError()
                 else:
                     # Split quality = sum of reduction in dimensions-scaled variance sums.
-                    # NOTE: This is where we apply min_samples_leaf.
                     gain_per_dim = (cov_or_var_sum[1,0] - 
-                                    cov_or_var_sum[:,min_samples_leaf:-min_samples_leaf,:].sum(axis=0))
+                                    cov_or_var_sum[:,valid_split_indices,:].sum(axis=0))
                     qual = (gain_per_dim * self.space.global_var_scale[eval_dims]).sum(axis=1)
-                    split_point = np.argmax(qual) # Greedy split is the one with the highest quality.                    
-                    qual_max = qual[split_point]
-                    extra.append(gain_per_dim[split_point]) # Extra = gain_per_dim at split point.
-                    # Correct for offset of split point due to min_samples_leaf.
-                    split_point += min_samples_leaf
+                    # Greedy split is the one with the highest quality.
+                    greedy = np.argmax(qual)      
+                    split_index = valid_split_indices[greedy]   
+                    qual_max = qual[greedy]
+                    extra.append(gain_per_dim[greedy]) # Extra = gain_per_dim at split point.
             # Store split info.
-            splits.append((split_dim, split_point, qual_max, (right, d1, d2) if corr else None,
-                           split_sorted_indices(self.sorted_indices, split_dim, split_point)))
+            splits.append((split_dim, split_index, qual_max, (right, d1, d2) if corr else None))
         return splits, np.array(extra)
 
     def _eval_splits_one_dim(self, split_dim, eval_dims, min_samples_leaf, cov=False):
@@ -290,3 +301,36 @@ class Node:
                 mean[0,num_left], var_sum[0,num_left] = increment_mean_and_var_sum(num_left,  mean[0,num_left-1], var_sum[0,num_left-1], x, 1)
                 mean[1,num_left], var_sum[1,num_left] = increment_mean_and_var_sum(num_right, mean[1,num_left-1], var_sum[1,num_left-1], x, -1)            
         return cov_sum if cov else var_sum
+
+# ================================================================
+
+    def _eval_splits_one_dim_transition(self, split_dim, sim_dim, succ_leaf_all, sim_params):
+        """
+        Try splitting the node along one dim using the transition impurity method.
+        """
+        indices = self.sorted_indices[:,split_dim]
+        sim_data = [None for _ in indices] if sim_dim is None else self.space.data[indices,sim_dim]
+        succ_leaf = [succ_leaf_all[idx] if succ_leaf_all[idx] != self else 1 for idx in indices] # 1 is placeholder for right, 0 is placeholder for left.        
+        indices_split = [set(), set(indices)]
+        imp_sum = np.zeros((2,self.num_samples+1))
+        imp_sum[1,0] = self.t_imp_sum        
+        for num_left in range(1,self.num_samples+1):
+            print(num_left)
+            idx, x, s = indices[num_left-1], sim_data[num_left-1], succ_leaf[num_left-1]
+            indices_split[0].add(idx); indices_split[1].remove(idx) # Transfer index from left to right.
+            imp_sum[:,num_left] = imp_sum[:,num_left-1] # Copy over previous impurities for incremental.
+            for l_or_r in (0,1): # Left or right.
+                x_l_or_r = sim_data[:num_left] if l_or_r == 0 else sim_data[num_left:]
+                succ_leaf_l_or_r = succ_leaf[:num_left] if l_or_r == 0 else succ_leaf[num_left:]
+                # Compute contributition to impurity_sum.
+                contrib = 2*transition_imp_contrib(x, s, x_l_or_r, succ_leaf_l_or_r, sim_params) # Multiply x2 due to symmetry.         
+                imp_sum[l_or_r,num_left] += contrib if l_or_r == 0 else -contrib # Add for left, subtract for right.
+                if idx-1 in indices_split[l_or_r]: # May need to correct impurity contribution of predecessor. 
+                    loc_p = np.where(indices == idx-1)[0][0]
+                    if succ_leaf[loc_p] is not None:
+                        # Correction is a three-step process:
+                        imp_sum[l_or_r,num_left] -= 2*transition_imp_contrib(sim_data[loc_p], succ_leaf[loc_p], x_l_or_r, succ_leaf_l_or_r, sim_params) # Remove old...
+                        succ_leaf[loc_p] = 0 # ...update...
+                        succ_leaf_l_or_r = succ_leaf[:num_left] if l_or_r == 0 else succ_leaf[num_left:]
+                        imp_sum[l_or_r,num_left] += 2*transition_imp_contrib(sim_data[loc_p], succ_leaf[loc_p], x_l_or_r, succ_leaf_l_or_r, sim_params) # ...add new.
+        return imp_sum

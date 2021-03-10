@@ -21,10 +21,10 @@ class Space:
             var[var==0] = 1 # Prevent div/0 error.
             self.global_var_scale = 1 / var
         # Empty dictionary for storing models.
-        self.models = {}
+        self.models = {}; self.fsms = {}
 
     # Dunder/magic methods.
-    def __repr__(self): return f"{len(self)}D space with {len(self.data)} samples and {len(self.models)} models"
+    def __repr__(self): return f"{len(self)}D space with {len(self.data)} samples, {len(self.models)} model{'s' if len(self.models) != 1 else ''} and {len(self.fsms)} FSM{'s' if len(self.fsms) != 1 else ''}"
     def __getitem__(self, name): return self.models[name]
     def __len__(self): return len(self.dim_names)
 
@@ -53,7 +53,7 @@ class Space:
         self.models[name] = Tree(name, root, split_dims, eval_dims)
         return self.models[name]
 
-    def tree_best_first(self, name, split_dims, eval_dims, sorted_indices=None, 
+    def tree_best_first_old(self, name, split_dims, eval_dims, sorted_indices=None, 
                         max_num_leaves=np.inf, min_samples_leaf=1): 
         """
         Grow a tree best-first to max_num_leaves using samples specified by sorted_indices. 
@@ -79,6 +79,21 @@ class Space:
         self.models[name] = Tree(name, root, split_dims, eval_dims)
         return self.models[name]
 
+    def tree_best_first(self, name, split_dims, eval_dims, sorted_indices=None, 
+                        max_num_leaves=np.inf, min_samples_leaf=1): 
+        """
+        Grow a tree best-first to max_num_leaves using samples specified by sorted_indices. 
+        """
+        split_dims, eval_dims, sorted_indices = self._preflight_check(split_dims, eval_dims, sorted_indices)
+        with tqdm(total=max_num_leaves) as pbar:
+            # Initialise tree with root only.
+            root = Node(self, sorted_indices=sorted_indices) 
+            self.models[name] = Tree(name, root, split_dims, eval_dims)
+            pbar.update(1)
+            while len(self.models[name].leaves) < max_num_leaves and len(self.models[name].split_queue) > 0:
+                self.models[name].split_next_best(min_samples_leaf, pbar)
+        return self.models[name]
+
     def model_from_dict(self, name, d):
         """
         Create a flat model from a dictionary object.
@@ -99,7 +114,7 @@ class Space:
         """
         def _recurse(node, n): 
             if n in d:
-                if not node._do_manual_split(d[n]["split_dim"], d[n]["split_threshold"]):
+                if not node._do_manual_split(d[n]["split_dim"], split_threshold=d[n]["split_threshold"]):
                     raise ValueError(f"Invalid split threshold for node {n}: \"{d[n]}\".")
                 _recurse(node.left, d[n]["left"])
                 _recurse(node.right, d[n]["right"])
@@ -126,7 +141,7 @@ class Space:
                 try: split_dim = int(d.split("[")[1][:-1]) # If index specified.
                 except: split_dim = self.dim_names.index(d) # If dim_name specified.
                 split_dims.add(split_dim)
-                if not node._do_manual_split(split_dim, float(t)):
+                if not node._do_manual_split(split_dim, split_threshold=float(t)):
                     raise ValueError(f"Invalid split threshold at line {n}: \"{lines[n]}\".")
                 n = _recurse(node.left if o == "<" else node.right, n + 1)
                 assert lines[n] == "else:"
@@ -139,6 +154,11 @@ class Space:
         _recurse(root, 1)
         self.models[name] = Tree(name, root, sorted(split_dims), eval_dims)
         return self.models[name]
+
+    def fsm_from_model(self, name, model, X, pbar=True):
+        from .fsm import FSM
+        self.fsms[name] = FSM(name, model, data=X, pbar=pbar)
+        return self.fsms[name]
 
     def idxify(self, *args):
         """

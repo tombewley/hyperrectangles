@@ -3,7 +3,7 @@ import bisect
 from itertools import product
 
 # ===============================
-# OPERATIONS ON SAMPLE STATISTICS
+# OPERATIONS USED FOR VARIANCE-BASED SPLITTING
 
 def increment_mean_and_var_sum(n, mean, var_sum, x, sign):
     """
@@ -35,6 +35,23 @@ def cov_to_r2(cov):
     r2 = (cov**2) / np.outer(var, var)
     r2[cov == 0] = 0
     return np.triu(r2, k=1)
+
+# ===============================
+# OPERATIONS USED FOR TRANSITION-BASED SPLITTING
+
+# def transition_imp_delta(x, x_o, params): # NOTE: Must be symmetric.
+#     if params["kernel"] == "gaussian": return np.exp(-((x - x_o) / params["sigma"])**2) # Gaussian function of index separation.
+#     else: raise NotImplementedError() # From discrete label...
+
+def transition_imp_contrib(x, succ_leaf, x_other, succ_leaf_other, sim_params):
+    contrib = 0
+    for x_o, s_o in zip(x_other, succ_leaf_other): 
+        if x is None: similarity = 1 # If no similarity data provided, use 1 throughout.
+        elif sim_params["kernel"] == "gaussian": similarity = np.exp(-((x - x_o) / sim_params["sigma"])**2) # Gaussian function of similarity.
+        else: raise NotImplementedError() # From discrete label...
+        # Contibution from similarity is flipped depending on whether successor leaf matches.
+        contrib += (similarity if succ_leaf != s_o else 1-similarity)
+    return contrib 
 
 # ===============================
 # OPERATIONS ON SORTED INDICES
@@ -102,8 +119,6 @@ def bb_intersect(bb_a, bb_b):
     """
     l = np.maximum(bb_a[:,0], bb_b[:,0])
     u = np.minimum(bb_a[:,1], bb_b[:,1]) 
-    print("l=",l)
-    print("u=",u)
     if np.any(u-l < 0): return None # Return None if no overlap.
     return np.array([l, u]).T
 

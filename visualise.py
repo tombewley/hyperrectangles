@@ -4,7 +4,6 @@ import matplotlib as mpl
 import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
 import mpl_toolkits.mplot3d.art3d as art3d
-import networkx as nx
 
 def show_samples(node, vis_dims, colour_dim=None, alpha=1, spark=False, subsample=None, ax=None):
     """
@@ -33,6 +32,7 @@ def show_samples(node, vis_dims, colour_dim=None, alpha=1, spark=False, subsampl
             ax.set_zlabel(node.space.dim_names[vis_dims[2]])
         else:
             ax.scatter(X[:,0], X[:,1], s=0.25, c='k', alpha=alpha) 
+    return ax
         
 def show_lines(model, attributes, vis_dim=None, max_depth=np.inf, maximise=False, show_spread=False, ax=None):
     """
@@ -71,6 +71,14 @@ def show_lines(model, attributes, vis_dim=None, max_depth=np.inf, maximise=False
                     spread_mn, spread_mx = values[i+num_attributes][n]
                 ax.add_patch(_make_rectangle([[mn,mx],[spread_mn,spread_mx]], colours[i], edge_colour=None, alpha=0.25))
     ax.legend()
+    return ax
+
+def show_leaf_numbers(model, vis_dims, ax=None, fontsize=6):
+    assert len(vis_dims) == 2
+    vis_dims = model.space.idxify(vis_dims)
+    if ax is None: _, ax = plt.subplots()
+    for n, l in enumerate(model.leaves): 
+        ax.text(l.mean[vis_dims[0]], l.mean[vis_dims[1]], n, ha="center", va="center", fontsize=fontsize)
     return ax
 
 def show_rectangles(model, vis_dims=None, attribute=None, 
@@ -187,49 +195,6 @@ def show_derivatives(tree, max_depth=np.inf, scale=1, pivot='tail', ax=None):
     plt.quiver(values[0], values[1], values[2], values[3], 
                       pivot=pivot, angles='xy', scale_units='xy', units='inches', 
                       color='k', scale=1/scale, width=0.02, minshaft=1)
-    return ax
-
-def show_transition_graph(model, layout_dims=None, highlight_path=None, alpha=False, ax=None):
-    """
-    Visualise transition graph using networkx.
-    """
-    if not model.transition_graph: model.make_transition_graph()
-    G = model.transition_graph
-    if layout_dims is not None:
-        assert len(layout_dims) == 2 
-        layout_dims = model.space.idxify(layout_dims)
-        if ax is None: ax = _ax_setup(ax, model, layout_dims)
-        pos = {}; # fixed = []
-        for node in G.nodes():
-            if node not in ("I","T"): # Not initial/terminal.
-                # Position node at the mean of its constituent samples.
-                pos[node] = node.mean[layout_dims]
-                # fixed.append(node)
-        pos["I"] = np.array([0, 1.6])
-        pos["T"] = np.array([0, -0.1])
-    else:
-        # If no layout_dims, arrange using spring forces.
-        pos = nx.spring_layout(G)
-        if ax is None: _, ax = plt.subplots()#figsize=(12,12))    
-    # Draw nodes and labels.
-    nx.draw_networkx_nodes(G, pos=pos, node_color=["#a8caff" for _ in range(len(model))] + ["#74ad83","#e37b40"], ax=ax)
-    nx.draw_networkx_labels(G, pos=pos, labels=nx.get_node_attributes(G, "idx"), ax=ax)
-    # If highlight_path specified, highlight it in a different colour.
-    if highlight_path is not None:
-        h = set((highlight_path[i], highlight_path[i+1]) for i in range(len(highlight_path)-1))
-        edge_colours = []
-        for edge in G.edges:
-            if edge in h: edge_colours.append("r")
-            else: edge_colours.append("k")
-    else: edge_colours = ["k" for _ in G.edges]
-    arcs = nx.draw_networkx_edges(G, pos=pos, connectionstyle="arc3,rad=0.2", edge_color=edge_colours, ax=ax)
-    # Set alpha individually for each non-highlighted edge.
-    if alpha:
-        for arc, (_,_,attr), c in zip(arcs, G.edges(data=True), edge_colours):
-            if c != "r": arc.set_alpha(attr["alpha"])
-    # Retrieve axis ticks which networkx likes to hide.
-    if layout_dims is not None: 
-        ax.tick_params(left=True, bottom=True, labelleft=True, labelbottom=True)
     return ax
 
 def show_shap_dependence(tree, node, wrt_dim, shap_dim, vis_dim=None, deint_dim=None, 

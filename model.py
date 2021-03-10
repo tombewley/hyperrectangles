@@ -1,7 +1,6 @@
 from .utils import *
 from .rules import *
 import numpy as np
-import networkx as nx
 from itertools import chain, combinations
 from math import factorial
 from tqdm import tqdm
@@ -14,13 +13,24 @@ class Model:
     def __init__(self, name, leaves):
         self.name = name
         if leaves: self.leaves, self.space = leaves, leaves[0].space
-        # These attributes are computed on request.
-        self.transitions, self.transition_graph = None, None 
     
     # Dunder/magic methods.
     def __repr__(self): return f"{self.name}: flat model with {len(self)} leaves"
     def __call__(self, *args, **kwargs): return self.propagate(*args, **kwargs)
     def __len__(self): return len(self.leaves)
+
+    def populate(self, sorted_indices="all", keep_bb_min=False):
+        """
+        Populate all leaves in the model with data from a sorted_indices array.
+        """
+        assert self.space.data.shape[0], "Space must have data."
+        if sorted_indices is "all": sorted_indices = self.space.all_sorted_indices
+        for leaf in self.leaves:
+            leaf.populate(bb_filter_sorted_indices(self.space, sorted_indices, leaf.bb_max),
+                          keep_bb_min=keep_bb_min)
+        return self
+
+    def depopulate(self, keep_bb_min=False): return self.populate(None, keep_bb_min=keep_bb_min) 
 
     def gather(self, *args, **kwargs): return gather(self.leaves, *args, **kwargs)
     
@@ -34,16 +44,6 @@ class Model:
             if vector_out: output.append(mu)
             elif mu: output.add((leaf, mu) if mode == "fuzzy" else leaf)
         return output
-
-    def populate(self, sorted_indices=None, keep_bb_min=False):
-        """
-        Populate all leaves in the model with data from a sorted_indices array.
-        """
-        assert self.space.data.shape[0], "Space must have data."
-        if sorted_indices is None: sorted_indices = self.space.all_sorted_indices
-        for leaf in self.leaves:
-            leaf.populate(bb_filter_sorted_indices(self.space, sorted_indices, leaf.bb_max),
-                          keep_bb_min=keep_bb_min)
 
     def predict(self, X, dims, mode="min"): 
         """
@@ -107,77 +107,6 @@ class Model:
         elif sort_by == 'L2': options.sort(key=lambda x: x[3])   
         return options if return_all else options[0]
 
-    def make_transition_matrix(self):
-        """
-        Count the transitions between all nodes and store in a matrix.
-        The final two rows and cols correspond to initial/terminal.
-        """
-        print("Warning: Transition analysis uses all of self.space.data, so is not suitable for local models")
-        time_idx = self.space.dim_names.index("time") # Must have time dimension.
-        n = len(self)
-        self.sequences = []
-        # Iterate through data in temporal order.
-        for x_idx, x in enumerate(self.space.data):
-            leaves = self.propagate(x, mode="max") # NOTE: is this more efficient than lookup?
-            assert len(leaves) == 1, "Can only compute transitions if leaves are disjoint and exhaustive."
-            leaf_idx = self.leaves.index(next(iter(leaves)))
-            time = x[time_idx]
-            if time == 0 or leaf_idx != current_seq["leaf"]: # Start of ep or transition.
-                if time == 0: prev_leaf_idx = n
-                else: 
-                    assert time == time_last + 1, "Data must be temporally ordered"
-                    prev_leaf_idx = current_seq["leaf"]
-                    current_seq["next"] = leaf_idx
-                try: self.sequences.append(current_seq) # Store previous sequence.
-                except: pass # This happens on the very first sample.
-                current_seq = {"prev":prev_leaf_idx, "idx":x_idx, "leaf":leaf_idx, "len":0, "next":n+1}
-            time_last = time; current_seq["len"] += 1
-        self.sequences.append(current_seq) # Store very last sequence.
-        # Count transitions to build matrix.
-        self.transitions = np.zeros((n+2, n+2), dtype=int)
-        for l in range(n): 
-            seq = [s for s in self.sequences if s["leaf"] == l]
-            self.transitions[l] = [len([True for s in seq if s["next"] == ll]) for ll in range(n+2)]                
-        seq = [s for s in self.sequences if s["prev"] == n] # Do initial separately.
-        self.transitions[n] = [len([True for s in seq if s["leaf"] == ll]) for ll in range(n+2)] 
-
-        for l in range(n): assert self.transitions[l].sum() == self.transitions[:,l].sum()
-
-    def make_transition_graph(self):
-        """
-        Use transitions to build a networkx graph with a node for each leaf.
-        """
-        # Need transitions first.
-        if self.transitions is None: self.make_transition_matrix()
-        mx = self.transitions.max() # Count for single most common transition.
-        G = nx.DiGraph()
-        # Create nodes: one for each leaf plus initial and terminal.
-        nodes = self.leaves + ['I', 'T']
-        n = len(self)
-        G.add_nodes_from([(l, 
-                         # For attributes, use the node's meta dictionary and add an index.
-                         dict([('idx',i)] + list(l.meta.items())) if i < n else {'idx':l}) 
-                         for i, l in enumerate(nodes)])
-        # Create edges.
-        for i, node in enumerate(G.nodes): 
-            count_sum = self.transitions[i].sum()
-            for j, count in enumerate(self.transitions[i]):
-                if count > 0:
-                    G.add_edge(node, nodes[j], count=count, 
-                                               alpha=count/mx, 
-                                               cost=-np.log(count/count_sum) # Edge cost = negative log prob.
-                                               )
-        self.transition_graph = G
-        return self.transition_graph
-
-    def dijkstra_path(self, source, dest=None):
-        """
-        Use networkx's inbuild Dijktra algorithm to find the highest-probability paths from a source leaf.
-        If a destination is specified, use that. Otherwise, find paths to all other leaves.
-        """
-        assert self.transition_graph is not None
-        return nx.single_source_dijkstra(self.transition_graph, source=source, target=dest, weight="cost")
-
     def shap(self, X, shap_dims, wrt_dim, ignore_dim=None, maximise=False): 
         """
         An implementation of TreeSHAP for computing local importances for shap_dims, based on Shapley values.
@@ -228,3 +157,13 @@ class Model:
             print(f'Ignoring {ignore_dim}...')
             shaps[ignore_dim] = self.shap(X, shap_dims, wrt_dim, ignore_dim=ignore_dim, maximise=maximise)
         return shaps
+
+    def clone(self): 
+        """
+        Clone this model, retaining only the reference to the space.
+        """
+        from copy import deepcopy
+        clone = deepcopy(self)
+        clone.space = self.space
+        for leaf in clone.leaves: leaf.space = self.space
+        return clone
