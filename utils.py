@@ -39,18 +39,14 @@ def cov_to_r2(cov):
 # ===============================
 # OPERATIONS USED FOR TRANSITION-BASED SPLITTING
 
-# def transition_imp_delta(x, x_o, params): # NOTE: Must be symmetric.
-#     if params["kernel"] == "gaussian": return np.exp(-((x - x_o) / params["sigma"])**2) # Gaussian function of index separation.
-#     else: raise NotImplementedError() # From discrete label...
-
 def transition_imp_contrib(x, succ_leaf, x_other, succ_leaf_other, sim_params):
     contrib = 0
     for x_o, s_o in zip(x_other, succ_leaf_other): 
-        if x is None: similarity = 1 # If no similarity data provided, use 1 throughout.
-        elif sim_params["kernel"] == "gaussian": similarity = np.exp(-((x - x_o) / sim_params["sigma"])**2) # Gaussian function of similarity.
+        if x is None: sim = 1 # If no similarity data provided, use 1 throughout.
+        elif sim_params["kernel"] == "gaussian": sim = np.exp(-((x - x_o) / sim_params["sigma"])**2) # Gaussian function of similarity.
         else: raise NotImplementedError() # From discrete label...
         # Contibution from similarity is flipped depending on whether successor leaf matches.
-        contrib += (similarity if succ_leaf != s_o else 1-similarity)
+        contrib += (sim if succ_leaf != s_o else 1-sim)
     return contrib 
 
 # ===============================

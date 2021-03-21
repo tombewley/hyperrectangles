@@ -77,7 +77,7 @@ class FSM:
         P = counts / s_n; P[m+1,m+1] = 1 # T is an absorbing state.
         s_p = counts.sum(axis=0, keepdims=True); s_p[s_p==0] = 1
         P_p = (counts / s_p).T; P_p[m,m] = 1 # I is an absorbing state.
-        return P, P_p, counts
+        return P, P_p, counts.astype(int)
 
     def path(self, X, self_loops=False):
         """
@@ -218,7 +218,7 @@ class State:
             self.ep_splits[interval] = segments
         _recurse(self.segments, (-np.inf, np.inf), 0)
 
-    def counts(self, order=1, self_loops=False, ep=None):
+    def counts(self, order=1, self_loops=True, ep=None):
         """
         Use segments to build 1st- or 2nd-order transition counts.
         """
@@ -238,6 +238,37 @@ class State:
                     counts_p[self.leaf_idx] += l; counts_n[self.leaf_idx] += l
         if order == 2: return counts
         else: return counts_p, counts_n
+
+    def steps_v1(self, ep=None):
+        """
+        Gather step indices for inbound, self-loop and outbound transitions.
+        """
+        if ep is None: segments = self.segments
+        else: segments = self.ep_splits[self._get_ep_split(ep)]
+        m = len(self.fsm.states)
+        inbound, self_loops, outbound = [[] for _ in range(m+2)], [], [[] for _ in range(m+2)]
+        for s in segments:
+            steps = list(range(s["step"], s["step"]+s["len"]))
+            inbound[s["prev"]].append(steps[0])
+            self_loops += steps[1:]
+            # NOTE: if outbound to terminal, subtract 1 from the step index.
+            outbound[s["next"]].append(steps[-1] if s["next"] == m+1 else steps[-1]+1)
+        return inbound, self_loops, outbound
+
+    def steps_v2(self, self_loops=True):
+        """
+        Store step indices and next states in a dictionary.
+        """
+        self_idx = self.fsm.states.index(self)
+        m = len(self.fsm.states)
+        steps = {}     
+        for s in self.segments:
+            stps = list(range(s["step"], s["step"]+s["len"]))
+            if self_loops: 
+                for stp in stps[1:]: steps[stp] = self_idx                
+            if s["next"] == m+1: steps[stps[-1]] = s["next"]
+            else: steps[stps[-1]+1] = s["next"]
+        return steps
 
     def returns(self, mode="V", ep=None):
         """

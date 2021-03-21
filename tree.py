@@ -109,9 +109,9 @@ class Tree(Model):
         t_split_queue = []
         for l in self.leaves:
             indices = l.sorted_indices[:,0]
-            sim_data = [None for _ in indices] if sim_dim is None else self.space.data[indices,sim_dim]
+            sim = [None for _ in indices] if sim_dim is None else self.space.data[indices,sim_dim]
             succ_leaf = succ_leaf_all[indices]
-            l.t_imp_sum = sum(transition_imp_contrib(x, s, sim_data, succ_leaf, sim_params) for x, s in zip(sim_data, succ_leaf))
+            l.t_imp_sum = sum(transition_imp_contrib(x, s, sim, succ_leaf, sim_params) for x, s in zip(sim, succ_leaf))
             t_split_queue.append((l, l.t_imp_sum))
         t_split_queue.sort(key=lambda x: x[1], reverse=True) # Sort.
         # Pick the first leaf in t_split_queue to split.
@@ -157,6 +157,75 @@ class Tree(Model):
 
             return True
         return False
+
+    def split_next_best_transition_2(self, sim_params, pbar=None, plot=False):
+        """
+        Recompute transitions, ...
+        """
+
+        ###############
+        # self.eval_dims = []
+        ###############
+
+        from scipy.stats import entropy
+
+        assert self.root.num_samples == len(self.space.data), "Must use entire dataset."
+        if len(self.eval_dims) == 0: sim_dim = None
+        elif len(self.eval_dims) == 1: sim_dim = self.eval_dims[0]
+        else: raise ValueError("Can only use one eval_dim as sim_dim for transition splitting.")
+        # Store transitions.
+        m = len(self)
+        if sim_dim is None: n_c = 1 # Single class.
+        elif sim_params["kernel"] == "discrete": 
+            sim = self.space.data[:,sim_dim].astype(int)
+            sim_classes = list(np.unique(sim)); n_c = len(sim_classes)            
+        else: raise NotImplementedError("Does not work with continuous sim_dim.")  
+
+        transitions = np.array([[[set() for _ in range(m+2)] for _ in range(n_c)] for _ in range(m+2)]) # Separate transitions for each class.
+
+        step_dim, time_dim = self.space.dim_names.index("step"), self.space.dim_names.index("time")
+        c = 0; leaf_idx_last = None
+        for x in self.space.data:
+            leaves = self.propagate(x, mode="max") 
+            assert len(leaves) == 1, "Can only compute transitions if leaves are disjoint and exhaustive."
+            step, time, leaf_idx = x[step_dim], x[time_dim], self.leaves.index(next(iter(leaves)))
+            if n_c > 1: c = sim_classes.index(x[sim_dim])
+            if time == 0: 
+                transitions[m,c,leaf_idx].add(step) # From initial.
+                if leaf_idx_last is not None: transitions[leaf_idx_last,c_last,m+1].add(step_last) # To terminal.
+            else:
+                assert time == time_last + 1, "Data must be temporally ordered"
+                transitions[leaf_idx_last,c,leaf_idx].add(step_last)
+            step_last, time_last, leaf_idx_last, c_last = step, time, leaf_idx, c
+        transitions[leaf_idx_last,c_last,m+1].add(step_last) # Final terminal.
+        # Compute transition impurities for every leaf.
+        counts = np.array([[[len(t) for t in c] for c in l] for l in transitions[:-2]]) # Ignore initial and terminal.
+        H = entropy(counts, axis=2)
+        leaf_counts = counts.sum(axis=(1,2))
+        if sim_dim is None: raise NotImplementedError()
+        else:
+            """
+            Multi-distribution Jensen-Shannon divergence https://en.wikipedia.org/wiki/Jensen%E2%80%93Shannon_divergence.
+            Want to maximise this.
+            NOTE: Doesn't seem well-defined as can't combine easily with population-weighting.
+            """
+            weights = counts.sum(axis=2) / leaf_counts.reshape(-1,1)
+            H_weighted = np.nansum(H * weights, axis=1)
+            H_marginal = entropy(counts.sum(axis=1), axis=1)
+            JSD = (H_marginal - H_weighted) #* leaf_counts 
+            #best_to_split = np.argmin(leaf_imp_sums) # Split leaf with 
+
+
+
+
+
+
+
+
+
+
+
+
 
     def dca_subtree(self, name, nodes): 
         """ 

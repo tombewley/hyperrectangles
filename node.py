@@ -26,14 +26,14 @@ class Node:
     def __repr__(self): return f"Node with {self.num_samples} samples"
     def __call__(self, *args, **kwargs): return self.membership(*args, **kwargs)
     def __len__(self): return len(self.sorted_indices)
-    # def __getattr__(self, key): return self.__getitem__(key)
     def __getitem__(self, key): 
-        try: return self.__getattribute__(key) # For declared attributes (e.g. self.bb_max).
+        try: return self.__getattribute__(key) # For declared attributes (e.g. self.bb_max, self.data).
         except:
             if type(key) == tuple: 
                 try: return self.stat(key) # For statistical attributes.
                 except: pass
-            return self.meta[key] # For meta attributes.
+            try: return self.meta[key] # For meta attributes.
+            except: return self.data(key) # For data dims.
     def __setitem__(self, key, val): self.meta[key] = val
     def __contains__(self, idx): return idx in self.sorted_indices[:,0] 
 
@@ -265,8 +265,7 @@ class Node:
                     raise NotImplementedError()
                 else:
                     # Split quality = sum of reduction in dimensions-scaled variance sums.
-                    gain_per_dim = (cov_or_var_sum[1,0] - 
-                                    cov_or_var_sum[:,valid_split_indices,:].sum(axis=0))
+                    gain_per_dim = cov_or_var_sum[1,0] - cov_or_var_sum[:,valid_split_indices,:].sum(axis=0)
                     qual = (gain_per_dim * self.space.global_var_scale[eval_dims]).sum(axis=1)
                     # Greedy split is the one with the highest quality.
                     greedy = np.argmax(qual)      
@@ -309,18 +308,18 @@ class Node:
         Try splitting the node along one dim using the transition impurity method.
         """
         indices = self.sorted_indices[:,split_dim]
-        sim_data = [None for _ in indices] if sim_dim is None else self.space.data[indices,sim_dim]
+        sim = [None for _ in indices] if sim_dim is None else self.space.data[indices,sim_dim]
         succ_leaf = [succ_leaf_all[idx] if succ_leaf_all[idx] != self else 1 for idx in indices] # 1 is placeholder for right, 0 is placeholder for left.        
         indices_split = [set(), set(indices)]
         imp_sum = np.zeros((2,self.num_samples+1))
         imp_sum[1,0] = self.t_imp_sum        
         for num_left in range(1,self.num_samples+1):
             print(num_left)
-            idx, x, s = indices[num_left-1], sim_data[num_left-1], succ_leaf[num_left-1]
+            idx, x, s = indices[num_left-1], sim[num_left-1], succ_leaf[num_left-1]
             indices_split[0].add(idx); indices_split[1].remove(idx) # Transfer index from left to right.
             imp_sum[:,num_left] = imp_sum[:,num_left-1] # Copy over previous impurities for incremental.
             for l_or_r in (0,1): # Left or right.
-                x_l_or_r = sim_data[:num_left] if l_or_r == 0 else sim_data[num_left:]
+                x_l_or_r = sim[:num_left] if l_or_r == 0 else sim[num_left:]
                 succ_leaf_l_or_r = succ_leaf[:num_left] if l_or_r == 0 else succ_leaf[num_left:]
                 # Compute contributition to impurity_sum.
                 contrib = 2*transition_imp_contrib(x, s, x_l_or_r, succ_leaf_l_or_r, sim_params) # Multiply x2 due to symmetry.         
@@ -329,8 +328,8 @@ class Node:
                     loc_p = np.where(indices == idx-1)[0][0]
                     if succ_leaf[loc_p] is not None:
                         # Correction is a three-step process:
-                        imp_sum[l_or_r,num_left] -= 2*transition_imp_contrib(sim_data[loc_p], succ_leaf[loc_p], x_l_or_r, succ_leaf_l_or_r, sim_params) # Remove old...
+                        imp_sum[l_or_r,num_left] -= 2*transition_imp_contrib(sim[loc_p], succ_leaf[loc_p], x_l_or_r, succ_leaf_l_or_r, sim_params) # Remove old...
                         succ_leaf[loc_p] = 0 # ...update...
                         succ_leaf_l_or_r = succ_leaf[:num_left] if l_or_r == 0 else succ_leaf[num_left:]
-                        imp_sum[l_or_r,num_left] += 2*transition_imp_contrib(sim_data[loc_p], succ_leaf[loc_p], x_l_or_r, succ_leaf_l_or_r, sim_params) # ...add new.
+                        imp_sum[l_or_r,num_left] += 2*transition_imp_contrib(sim[loc_p], succ_leaf[loc_p], x_l_or_r, succ_leaf_l_or_r, sim_params) # ...add new.
         return imp_sum
