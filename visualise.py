@@ -10,30 +10,56 @@ def show_samples(node, vis_dims, colour_dim=None, alpha=1, spark=False, subsampl
     Scatter plot across vis_dims of all the samples contained in node.
     """
     assert len(vis_dims) in (2,3)
-    vis_dims = node.space.idxify(vis_dims)
-    if colour_dim: raise NotImplementedError()
-    X = node.space.data[subsample_sorted_indices(node.sorted_indices, subsample)[:,0][:,None], vis_dims]
+    vis_dims, colour_dim = node.space.idxify(vis_dims, colour_dim)
+    X_all_dims = node.space.data[subsample_sorted_indices(node.sorted_indices, subsample)[:,0]]
+    X = X_all_dims[:, vis_dims]
     lims = [[X[:,0].min(), X[:,0].max()], [X[:,1].min(), X[:,1].max()]]
     if ax is None: 
         if spark: ax = _ax_spark(ax, lims)
         elif len(vis_dims) == 3: fig = plt.figure(); ax = fig.add_subplot(111, projection="3d")
         else: _, ax = plt.subplots()#figsize=(8,8))
+    if colour_dim: 
+        colours = _values_to_colours_and_cbar(X_all_dims[:,colour_dim].squeeze(), (mpl.cm.coolwarm, 'coolwarm'), None, ax)
+    else: colours = "k"
     # Automatically calculate alpha.
     if alpha is None: alpha = 1 / len(X)**0.5
     if spark:
-        ax.scatter(X[:,0], X[:,1], s=0.25, c='#fe5d02', alpha=alpha) 
+        ax.scatter(X[:,0], X[:,1], s=0.25, c=colours, alpha=alpha) 
         y = node.mean[vis_dims[1]]
         ax.plot(lims[0], [y,y], c='k')
     else:
         ax.set_xlabel(node.space.dim_names[vis_dims[0]])
         ax.set_ylabel(node.space.dim_names[vis_dims[1]])
         if len(vis_dims) == 3: 
-            ax.scatter(X[:,0], X[:,1], X[:,2], s=0.25, c='k', alpha=alpha) 
+            ax.scatter(X[:,0], X[:,1], X[:,2], s=5, c=colours, alpha=alpha) 
             ax.set_zlabel(node.space.dim_names[vis_dims[2]])
         else:
-            ax.scatter(X[:,0], X[:,1], s=0.25, c='k', alpha=alpha) 
+            ax.scatter(X[:,0], X[:,1], s=5, c=colours, alpha=alpha) 
     return ax
-        
+
+def show_episodes(space, vis_dims, ep_indices=None):
+    """
+    Show all samples in a space as per-episode line plots.
+    """
+    ep_dim = space.dim_names.index("ep")
+    vis_dims = space.idxify(vis_dims)
+    _, ax = plt.subplots()
+    ax.set_xlabel(space.dim_names[vis_dims[0]])
+    ax.set_ylabel(space.dim_names[vis_dims[1]])
+    ep, s_idx = 0, 0
+    for idx, x in enumerate(space.data): 
+        if x[ep_dim] != ep: 
+            if ep_indices==None or ep in ep_indices: 
+                ax.plot(space.data[s_idx:idx, vis_dims[0]],
+                        space.data[s_idx:idx, vis_dims[1]],
+                        c="k", lw=0.5
+                        )
+                # Start and end markers.
+                ax.scatter(space.data[s_idx, vis_dims[0]], space.data[s_idx, vis_dims[1]], c="b", s=5, zorder=3)
+                ax.scatter(space.data[idx-1, vis_dims[0]], space.data[idx-1, vis_dims[1]], c="g", s=5, zorder=3)
+            ep += 1; s_idx = idx
+    return ax
+
 def show_lines(model, attributes, vis_dim=None, max_depth=np.inf, maximise=False, show_spread=False, ax=None):
     """
     Given a one vis_dim, display one or more attributes using horizontal lines for each node.
@@ -161,15 +187,7 @@ def lims_and_values_to_rectangles(ax, lims, offsets=None, values=[None], cmap=No
     """
     Assemble a rectangle visualisation.
     """
-    if values != [None]:
-        # Compute fill colour.
-        if cmap_lims is None: mn, mx = np.min(values), np.max(values)
-        else: mn, mx = cmap_lims
-        if mx == mn: fill_colours = [cmap[0](0.5) for _ in values] # Default to midpoint.
-        else: fill_colours = [cmap[0](v) for v in (np.array(values) - mn) / (mx - mn)]
-        # Create colour bar.
-        norm = mpl.colors.Normalize(vmin=mn, vmax=mx)
-        ax.figure.colorbar(mpl.cm.ScalarMappable(norm=norm, cmap=cmap[1]), ax=ax)
+    if values != [None]: fill_colours = _values_to_colours_and_cbar(values, cmap, cmap_lims, ax)
     else:
         if fill_colour == None and edge_colour == None: edge_colour = 'k' # Show lines by default if no fill.    
         fill_colours = [fill_colour for _ in lims]
@@ -265,6 +283,17 @@ def _make_rectangle(lims, fill_colour, edge_colour, alpha):
     (xl, xu), (yl, yu) = lims
     fill_bool = (fill_colour != None)
     return mpl.patches.Rectangle(xy=[xl,yl], width=xu-xl, height=yu-yl, fill=fill_bool, facecolor=fill_colour, alpha=alpha, edgecolor=edge_colour, lw=0.5, zorder=-1) 
+
+def _values_to_colours_and_cbar(values, cmap, cmap_lims, ax):
+    # Compute fill colour.
+    if cmap_lims is None: mn, mx = np.min(values), np.max(values)
+    else: mn, mx = cmap_lims
+    if mx == mn: colours = [cmap[0](0.5) for _ in values] # Default to midpoint.
+    else: colours = [cmap[0](v) for v in (np.array(values) - mn) / (mx - mn)]
+    # Create colour bar.
+    norm = mpl.colors.Normalize(vmin=mn, vmax=mx)
+    ax.figure.colorbar(mpl.cm.ScalarMappable(norm=norm, cmap=cmap[1]), ax=ax)
+    return colours
 
 def _cmap(attribute):
     if attribute is None: return None

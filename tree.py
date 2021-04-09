@@ -97,8 +97,6 @@ class Tree(Model):
         # self.eval_dims = []
         ###############
 
-        print(self.eval_dims)
-
         assert self.root.num_samples == len(self.space.data), "Must use entire dataset."
         if len(self.eval_dims) == 0: sim_dim = None
         elif len(self.eval_dims) == 1: sim_dim = self.eval_dims[0]
@@ -111,6 +109,8 @@ class Tree(Model):
             indices = l.sorted_indices[:,0]
             sim = [None for _ in indices] if sim_dim is None else self.space.data[indices,sim_dim]
             succ_leaf = succ_leaf_all[indices]
+            print(sim)
+            print(succ_leaf)
             l.t_imp_sum = sum(transition_imp_contrib(x, s, sim, succ_leaf, sim_params) for x, s in zip(sim, succ_leaf))
             t_split_queue.append((l, l.t_imp_sum))
         t_split_queue.sort(key=lambda x: x[1], reverse=True) # Sort.
@@ -214,18 +214,6 @@ class Tree(Model):
             H_marginal = entropy(counts.sum(axis=1), axis=1)
             JSD = (H_marginal - H_weighted) #* leaf_counts 
             #best_to_split = np.argmin(leaf_imp_sums) # Split leaf with 
-
-
-
-
-
-
-
-
-
-
-
-
 
     def dca_subtree(self, name, nodes): 
         """ 
@@ -352,7 +340,7 @@ class Tree(Model):
         nodes = []
         def _recurse(node):
             if node is None: return
-            if node.split_dim: 
+            if node.split_dim is not None: 
                 if not leaves_only: nodes.append(node)
                 _recurse(node.left); _recurse(node.right)
             else: nodes.append(node)

@@ -27,7 +27,7 @@ class Node:
     def __call__(self, *args, **kwargs): return self.membership(*args, **kwargs)
     def __len__(self): return len(self.sorted_indices)
     def __getitem__(self, key): 
-        try: return self.__getattribute__(key) # For declared attributes (e.g. self.bb_max, self.data).
+        try: return self.__getattribute__(key) # For declared attributes (e.g. self.bb_max).
         except:
             if type(key) == tuple: 
                 try: return self.stat(key) # For statistical attributes.
@@ -314,7 +314,6 @@ class Node:
         imp_sum = np.zeros((2,self.num_samples+1))
         imp_sum[1,0] = self.t_imp_sum        
         for num_left in range(1,self.num_samples+1):
-            print(num_left)
             idx, x, s = indices[num_left-1], sim[num_left-1], succ_leaf[num_left-1]
             indices_split[0].add(idx); indices_split[1].remove(idx) # Transfer index from left to right.
             imp_sum[:,num_left] = imp_sum[:,num_left-1] # Copy over previous impurities for incremental.
