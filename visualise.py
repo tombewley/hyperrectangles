@@ -19,7 +19,7 @@ def show_samples(node, vis_dims, colour_dim=None, alpha=1, spark=False, subsampl
         elif len(vis_dims) == 3: fig = plt.figure(); ax = fig.add_subplot(111, projection="3d")
         else: _, ax = plt.subplots()#figsize=(8,8))
     if colour_dim: 
-        colours = _values_to_colours_and_cbar(X_all_dims[:,colour_dim].squeeze(), (mpl.cm.coolwarm, 'coolwarm'), None, ax)
+        colours = _values_to_colours_and_cbar(X_all_dims[:,colour_dim].squeeze(), (mpl.cm.coolwarm_r, 'coolwarm_r'), None, ax)
     else: colours = "k"
     # Automatically calculate alpha.
     if alpha is None: alpha = 1 / len(X)**0.5
@@ -37,15 +37,13 @@ def show_samples(node, vis_dims, colour_dim=None, alpha=1, spark=False, subsampl
             ax.scatter(X[:,0], X[:,1], s=5, c=colours, alpha=alpha) 
     return ax
 
-def show_episodes(space, vis_dims, ep_indices=None):
+def show_episodes(space, vis_dims, ep_indices=None, ax=None):
     """
     Show all samples in a space as per-episode line plots.
     """
     ep_dim = space.dim_names.index("ep")
     vis_dims = space.idxify(vis_dims)
-    _, ax = plt.subplots()
-    ax.set_xlabel(space.dim_names[vis_dims[0]])
-    ax.set_ylabel(space.dim_names[vis_dims[1]])
+    if ax is None: _, ax = plt.subplots(); ax.set_xlabel(space.dim_names[vis_dims[0]]); ax.set_ylabel(space.dim_names[vis_dims[1]])
     ep, s_idx = 0, 0
     for idx, x in enumerate(space.data): 
         if x[ep_dim] != ep: 

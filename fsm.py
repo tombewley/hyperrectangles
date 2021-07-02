@@ -54,7 +54,7 @@ class FSM:
     def __repr__(self): return f"{self.name}: FSM from model (( {self.model} )) with {len(self)} states"    
     def __len__(self): return len(self.leaves_plus)     
 
-    def transition_matrices(self, order=1, self_loops=False, ep=None): 
+    def transition_matrices(self, order=1, self_loops=True, ep=None): 
         # Collect counts from states.
         counts = np.stack(tuple(s.counts(order, self_loops, ep) for s in self.states), axis=1)
         m = len(self.states)

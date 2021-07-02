@@ -9,20 +9,29 @@ class Space:
     """
     Master class for centrally storing data and building models within a vector space.
     """
-    def __init__(self, data, dim_names):
-        self.data = data
+    def __init__(self, dim_names, data=None):
         self.dim_names = dim_names
+        if data is None: data = np.empty((0, len(dim_names))) 
+        self.data = data
+        # Empty dictionary for storing models.
+        self.models = {}; self.fsms = {}
+
+    # Data setter.
+    @property
+    def data(self): return self._data 
+    @data.setter
+    def data(self, data):
         assert data.shape[1] == len(self)
+        self._data = data
+        # Sort data along each dimension up front.
+        self.all_sorted_indices = np.argsort(data, axis=0) 
         if data.shape[0]:
-            # Sort data along each dimension up front.
-            self.all_sorted_indices = np.argsort(data, axis=0) 
             # Scale factors for variance are reciprocals of global variance.
             var = np.var(data, axis=0)
             var[var==0] = 1 # Prevent div/0 error.
             self.global_var_scale = 1 / var
-        # Empty dictionary for storing models.
-        self.models = {}; self.fsms = {}
-
+        else: self.global_var_scale = np.zeros(len(self))
+            
     # Dunder/magic methods.
     def __repr__(self): return f"{len(self)}D space with {len(self.data)} samples, {len(self.models)} model{'s' if len(self.models) != 1 else ''} and {len(self.fsms)} FSM{'s' if len(self.fsms) != 1 else ''}"
     def __getitem__(self, name): return self.models[name]
@@ -108,10 +117,12 @@ class Space:
         self.models[name] = Model(name, leaves)
         return self.models[name]
     
-    def tree_from_dict(self, name, d): 
+    def tree_from_dict(self, name, d, redim=None): 
         """
-        Create a tree from a dictionary object.
+        Create a tree from a dictionary object d. 
         """
+        if redim is not None: # "redim" allows renumbering of split dims.
+            for v in d.values(): v["split_dim"] = redim[v["split_dim"]]
         def _recurse(node, n): 
             if n in d:
                 if not node._do_manual_split(d[n]["split_dim"], split_threshold=d[n]["split_threshold"]):
@@ -120,7 +131,7 @@ class Space:
                 _recurse(node.right, d[n]["right"])
         root = Node(self, sorted_indices=self.all_sorted_indices)
         _recurse(root, 1) # Root node must have key of 1 in dict.
-        split_dims, eval_dims = list(set(v["split_dim"] for v in d.values())), [] # NOTE: No eval dims.
+        split_dims, eval_dims = sorted(set(v["split_dim"] for v in d.values())), [] # NOTE: No eval dims.
         self.models[name] = Tree(name, root, split_dims, eval_dims)
         return self.models[name]
 

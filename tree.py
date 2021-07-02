@@ -10,16 +10,22 @@ class Tree(Model):
         Model.__init__(self, name, leaves=None) # Don't explicitly pass leaves because they're under root.
         self.root, self.space, self.split_dims, self.eval_dims = root, root.space, split_dims, eval_dims
         self.leaves = self._get_nodes(leaves_only=True) # Collect the list of leaves.
-        # Split queue for best-first growth.
-        self.split_queue = [(leaf, np.dot(leaf.var_sum[self.eval_dims], self.space.global_var_scale[self.eval_dims])) for leaf in self.leaves]
-        self.split_queue.sort(key=lambda x: x[1], reverse=True)
+        self.compute_split_queue()
 
     # Dunder/magic methods.
     def __repr__(self): return f"{self.name}: tree model with {len(self.leaves)} leaves"
 
+    def compute_split_queue(self):
+        """
+        Compute split queue for best-first growth from scratch.
+        """
+        self.split_queue = [(leaf, np.dot(leaf.var_sum[self.eval_dims], self.space.global_var_scale[self.eval_dims])) for leaf in self.leaves]
+        self.split_queue.sort(key=lambda x: x[1], reverse=True)
+
     def populate(self, sorted_indices="all", keep_bb_min=False): 
         """
         Populate all nodes in the tree with data from a sorted_indices array.
+        Then recompute the split queue.
         """
         assert self.space.data.shape[0], "Space must have data."
         if sorted_indices is "all": sorted_indices = self.space.all_sorted_indices
@@ -32,6 +38,7 @@ class Tree(Model):
                 left, right = split_sorted_indices(si, node.split_dim, split_index)
             _recurse(node.left, left); _recurse(node.right, right)
         _recurse(self.root, sorted_indices)
+        self.compute_split_queue()
         return self
 
     def propagate(self, x, mode, contain=False, max_depth=np.inf, path=False):
@@ -85,7 +92,7 @@ class Tree(Model):
             self.split_queue += [(node.left,  np.dot(node.left.var_sum[self.eval_dims], self.space.global_var_scale[self.eval_dims])),
                                  (node.right, np.dot(node.right.var_sum[self.eval_dims], self.space.global_var_scale[self.eval_dims]))]
             self.split_queue.sort(key=lambda x: x[1], reverse=True) # Sort ready for next time.
-            return parent_index
+            return parent_index, node.split_dim, node.split_threshold
         return None
 
     def split_next_best_transition(self, sim_params, pbar=None, plot=False):
