@@ -192,49 +192,26 @@ class Node:
         self.right = Node(self.space, sorted_indices=right, bb_max=bb_max_right)
         return True
 
-    def _do_greedy_split(self, split_dims, eval_dims, min_samples_leaf, corr=False, one_sided=False, pop_power=.5):
+    def _do_greedy_split(self, split_dims, eval_dims, min_samples_leaf):
         """
         Find and implement the greediest split given split_dims and eval_dims.
         """
         # Only attempt to split if there are enough samples.
         if len(self) >= 2*min_samples_leaf:
-            splits, extra = self._find_greedy_splits(split_dims, eval_dims, min_samples_leaf, corr, one_sided, pop_power)
+            splits, extra = self._find_greedy_splits(split_dims, eval_dims, min_samples_leaf)
             if splits:
                 # Sort splits by quality and choose the single best.
-                split_dim, split_index, qual, index = sorted(splits, key=lambda x: x[2], reverse=True)[0]        
+                split_dim, split_index, qual = sorted(splits, key=lambda x: x[2], reverse=True)[0]        
                 if qual > 0:
                     self.gains["immediate"] = extra
                     return self._do_manual_split(split_dim, split_index=split_index)
-
-                    # self.split_dim = split_dim
-                    # # Split sorted indices at index.
-                    # left, right = split_sorted_indices(self.sorted_indices, self.split_dim, split_index)
-                    # # Compute numerical threshold to split at: midpoint of samples either side.
-                    # self.split_threshold = (self.space.data[left[-1,split_dim],split_dim] + self.space.data[right[0,split_dim],split_dim]) / 2
-                    # if one_sided: # Only create the child for which the split is made.
-                    #     self.eval_child_and_dims = index
-                    #     do_right = bool(self.eval_child_and_dims[0])
-                    #     print(f'Split @ {self.split_dim}={self.split_threshold} for child {self.eval_child_and_dims[0]} cov({self.space.dim_names[eval_dims[self.eval_child_and_dims[1]]]},{self.space.dim_names[eval_dims[self.eval_child_and_dims[2]]]})')
-                    # else: self.gains["immediate"] = extra
-                    # # Split bounding box and make children.
-                    # if (not one_sided) or (not do_right):
-                    #     bb_max_left = self.bb_max.copy(); bb_max_left[self.split_dim,1] = self.split_threshold
-                    #     self.left = Node(self.space, sorted_indices=left, bb_max=bb_max_left)
-                    # if (not one_sided) or do_right:
-                    #     bb_max_right = self.bb_max.copy(); bb_max_right[self.split_dim,0] = self.split_threshold
-                    #     self.right = Node(self.space, sorted_indices=right, bb_max=bb_max_right)
-                    # return True
         return False
 
-    def _find_greedy_splits(self, split_dims, eval_dims, min_samples_leaf, corr, one_sided, pop_power):
+    def _find_greedy_splits(self, split_dims, eval_dims, min_samples_leaf):
         """
         Try splitting the node along several split_dims, measuring quality using eval_dims.  
         Return the best split from each dim.
         """
-        if corr:
-            # Sequences of num_samples for left and right children.
-            n = np.arange(self.num_samples)
-            n = np.vstack((n, np.flip(n+1)))[:,:,None,None]
         splits, extra = [], []
         for split_dim in split_dims:
             # Apply two kinds of constraint to the split point:
@@ -244,63 +221,33 @@ class Node:
             valid_split_indices = [s for s in valid_split_indices if s >= min_samples_leaf and s <= self.num_samples-min_samples_leaf]
             # Cannot split on a dim if there are no valid split points, so skip.
             if valid_split_indices == []: extra.append(np.full(len(eval_dims), np.nan)); continue
-            # Evaluate splits along this dim, returning (co)variance sums.
-            cov_or_var_sum = self._eval_splits_one_dim(split_dim, eval_dims, min_samples_leaf, cov=corr)
-            if corr: 
-                # TODO: Fully vectorise this.
-                r2 = np.array([np.array([cov_to_r2(cov_c_n) # Convert cov to R^2...
-                               for cov_c_n in cov_c]) for cov_c in # ...for each child and each num_samples...
-                               cov_or_var_sum / n]) # ...where cov is computed by dividing cov_sum by num_samples.          
-                # Scaling incentivises large populations. 
-                r2_scaled = r2 * (np.log2(n-1) ** pop_power)
-                # r2_scaled = r2 * n / self.num_samples     
-                if one_sided:           
-                    # Split quality = maximum value of (R^2 * log2(population-1)**pop_power).
-                    right, split_index, d1, d2 = np.unravel_index(np.nanargmax(r2_scaled), r2_scaled.shape)
-                    qual_max = r2_scaled[(right, split_index, d1, d2)] - r2_scaled[(1, 0, d1, d2)]
-                    extra.append(r2_scaled) # Extra = r2_scaled at all points.
-                else:
-                    pca = [[np.linalg.eig(cov_c_n) if not np.isnan(cov_c_n).any() else None
-                           for cov_c_n in cov_c] for cov_c in 
-                           cov_or_var_sum / n]
-                    return pca
-            else:    
-                if one_sided: 
-                    raise NotImplementedError()
-                else:
-                    # Split quality = sum of reduction in dimensions-scaled variance sums.
-                    gain_per_dim = cov_or_var_sum[1,0] - cov_or_var_sum[:,valid_split_indices,:].sum(axis=0)
-                    qual = (gain_per_dim * self.space.global_var_scale[eval_dims]).sum(axis=1)
-                    # Greedy split is the one with the highest quality.
-                    greedy = np.argmax(qual)      
-                    split_index = valid_split_indices[greedy]   
-                    qual_max = qual[greedy]
-                    extra.append(gain_per_dim[greedy]) # Extra = gain_per_dim at split point.
+            # Evaluate splits along this dim, returning variance sums.
+            var_sum = self._eval_splits_one_dim(split_dim, eval_dims, min_samples_leaf)
+            # Split quality = sum of reduction in dimensions-scaled variance sums.
+            gain_per_dim = var_sum[1,0] - var_sum[:,valid_split_indices,:].sum(axis=0)
+            qual = (gain_per_dim * self.space.global_var_scale[eval_dims]).sum(axis=1)
+            # Greedy split is the one with the highest quality.
+            greedy = np.argmax(qual)      
+            split_index = valid_split_indices[greedy]   
+            qual_max = qual[greedy]
+            extra.append(gain_per_dim[greedy]) # Extra = gain_per_dim at split point.
             # Store split info.
-            splits.append((split_dim, split_index, qual_max, (right, d1, d2) if corr else None))
+            splits.append((split_dim, split_index, qual_max))
         return splits, np.array(extra)
 
-    def _eval_splits_one_dim(self, split_dim, eval_dims, min_samples_leaf, cov=False):
+    def _eval_splits_one_dim(self, split_dim, eval_dims, min_samples_leaf):
         """
-        Try splitting the node along one split_dim, calculating (co)variance sums along eval_dims.  
+        Try splitting the node along one split_dim, calculating variance sums along eval_dims.  
         """
         eval_data = self.space.data[self.sorted_indices[:,split_dim][:,None],eval_dims] 
         d = len(eval_dims)
         mean = np.zeros((2,self.num_samples+1,d))
-        if cov: # For full covariance matrix.
-            cov_sum = np.zeros((2,self.num_samples+1,d,d))
-            cov_sum[1,0] = self.cov_sum[eval_dims[:,None],eval_dims]
-        else: # Just variances (diagonal of cov).
-            var_sum = mean.copy()
-            var_sum[1,0] = self.var_sum[eval_dims]
+        var_sum = mean.copy()
+        var_sum[1,0] = self.var_sum[eval_dims]
         mean[1,0] = self.mean[eval_dims] 
         for num_left in range(1,(self.num_samples+1)-min_samples_leaf): 
             num_right = self.num_samples - num_left
             x = eval_data[num_left-1]
-            if cov:
-                mean[0,num_left], cov_sum[0,num_left] = increment_mean_and_cov_sum(num_left,  mean[0,num_left-1], cov_sum[0,num_left-1], x, 1)
-                mean[1,num_left], cov_sum[1,num_left] = increment_mean_and_cov_sum(num_right, mean[1,num_left-1], cov_sum[1,num_left-1], x, -1)
-            else:
-                mean[0,num_left], var_sum[0,num_left] = increment_mean_and_var_sum(num_left,  mean[0,num_left-1], var_sum[0,num_left-1], x, 1)
-                mean[1,num_left], var_sum[1,num_left] = increment_mean_and_var_sum(num_right, mean[1,num_left-1], var_sum[1,num_left-1], x, -1)            
-        return cov_sum if cov else var_sum
+            mean[0,num_left], var_sum[0,num_left] = increment_mean_and_var_sum(num_left,  mean[0,num_left-1], var_sum[0,num_left-1], x, 1)
+            mean[1,num_left], var_sum[1,num_left] = increment_mean_and_var_sum(num_right, mean[1,num_left-1], var_sum[1,num_left-1], x, -1)            
+        return var_sum

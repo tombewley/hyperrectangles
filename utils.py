@@ -16,26 +16,6 @@ def increment_mean_and_var_sum(n, mean, var_sum, x, sign):
     var_sum = var_sum + (sign * (d_last * d))
     return mean, np.maximum(var_sum, 0) # Clip at zero.
 
-def increment_mean_and_cov_sum(n, mean, cov_sum, x, sign):
-    """
-    Adaptation of the above to work with the whole covariance matrix.
-    """
-    d_last = x - mean
-    mean = mean + (sign * (d_last / n))
-    d = x - mean
-    cov_sum = cov_sum + (sign * np.outer(d_last, d))
-    return mean, cov_sum
-
-def cov_to_r2(cov):
-    """
-    Convert a covariance matrix to R^2 matrix, keeping only elements above the diagonal.
-    Adapted from https://gist.github.com/wiso/ce2a9919ded228838703c1c7c7dad13b.
-    """
-    var = np.maximum(np.diag(cov), 0)
-    r2 = (cov**2) / np.outer(var, var)
-    r2[cov == 0] = 0
-    return np.triu(r2, k=1)
-
 # ===============================
 # OPERATIONS ON SORTED INDICES
 
