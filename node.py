@@ -203,24 +203,27 @@ class Node:
                 # Sort splits by quality and choose the single best.
                 split_dim, split_index, qual, index = sorted(splits, key=lambda x: x[2], reverse=True)[0]        
                 if qual > 0:
-                    self.split_dim = split_dim
-                    # Split sorted indices at index.
-                    left, right = split_sorted_indices(self.sorted_indices, self.split_dim, split_index)
-                    # Compute numerical threshold to split at: midpoint of samples either side.
-                    self.split_threshold = (self.space.data[left[-1,split_dim],split_dim] + self.space.data[right[0,split_dim],split_dim]) / 2
-                    if one_sided: # Only create the child for which the split is made.
-                        self.eval_child_and_dims = index
-                        do_right = bool(self.eval_child_and_dims[0])
-                        print(f'Split @ {self.split_dim}={self.split_threshold} for child {self.eval_child_and_dims[0]} cov({self.space.dim_names[eval_dims[self.eval_child_and_dims[1]]]},{self.space.dim_names[eval_dims[self.eval_child_and_dims[2]]]})')
-                    else: self.gains["immediate"] = extra
-                    # Split bounding box and make children.
-                    if (not one_sided) or (not do_right):
-                        bb_max_left = self.bb_max.copy(); bb_max_left[self.split_dim,1] = self.split_threshold
-                        self.left = Node(self.space, sorted_indices=left, bb_max=bb_max_left)
-                    if (not one_sided) or do_right:
-                        bb_max_right = self.bb_max.copy(); bb_max_right[self.split_dim,0] = self.split_threshold
-                        self.right = Node(self.space, sorted_indices=right, bb_max=bb_max_right)
-                    return True
+                    self.gains["immediate"] = extra
+                    return self._do_manual_split(split_dim, split_index=split_index)
+
+                    # self.split_dim = split_dim
+                    # # Split sorted indices at index.
+                    # left, right = split_sorted_indices(self.sorted_indices, self.split_dim, split_index)
+                    # # Compute numerical threshold to split at: midpoint of samples either side.
+                    # self.split_threshold = (self.space.data[left[-1,split_dim],split_dim] + self.space.data[right[0,split_dim],split_dim]) / 2
+                    # if one_sided: # Only create the child for which the split is made.
+                    #     self.eval_child_and_dims = index
+                    #     do_right = bool(self.eval_child_and_dims[0])
+                    #     print(f'Split @ {self.split_dim}={self.split_threshold} for child {self.eval_child_and_dims[0]} cov({self.space.dim_names[eval_dims[self.eval_child_and_dims[1]]]},{self.space.dim_names[eval_dims[self.eval_child_and_dims[2]]]})')
+                    # else: self.gains["immediate"] = extra
+                    # # Split bounding box and make children.
+                    # if (not one_sided) or (not do_right):
+                    #     bb_max_left = self.bb_max.copy(); bb_max_left[self.split_dim,1] = self.split_threshold
+                    #     self.left = Node(self.space, sorted_indices=left, bb_max=bb_max_left)
+                    # if (not one_sided) or do_right:
+                    #     bb_max_right = self.bb_max.copy(); bb_max_right[self.split_dim,0] = self.split_threshold
+                    #     self.right = Node(self.space, sorted_indices=right, bb_max=bb_max_right)
+                    # return True
         return False
 
     def _find_greedy_splits(self, split_dims, eval_dims, min_samples_leaf, corr, one_sided, pop_power):
