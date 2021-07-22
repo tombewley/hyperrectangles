@@ -204,8 +204,8 @@ class Node:
             if splits:
                 # Sort splits by quality and choose the single best.
                 split_dim, split_index, qual = sorted(splits, key=lambda x: x[2], reverse=True)[0]        
-                if qual > 0: return split_dim, split_index, qual, gains
-        return False
+                return split_dim, split_index, qual, gains
+        return None, None, -np.inf, None 
 
     def _find_greedy_split_per_dim(self, split_dims, eval_dims, min_samples_leaf):
         """

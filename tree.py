@@ -10,17 +10,18 @@ class Tree(Model):
         Model.__init__(self, name, leaves=None) # Don't explicitly pass leaves because they're under root.
         self.root, self.space, self.split_dims, self.eval_dims = root, root.space, split_dims, eval_dims
         self.leaves = self._get_nodes(leaves_only=True) # Collect the list of leaves.
-        self.compute_split_queue()
+        self._compute_split_queue()
 
     # Dunder/magic methods.
     def __repr__(self): return f"{self.name}: tree model with {len(self.leaves)} leaves"
 
-    def compute_split_queue(self):
+    def _compute_split_queue(self):
         """
-        Compute split queue for best-first growth from scratch.
+        Compute split queue for best-first growth from scratch, and empty split cache.
         """
         self.split_queue = [(leaf, np.dot(leaf.var_sum[self.eval_dims], self.space.global_var_scale[self.eval_dims])) for leaf in self.leaves]
         self.split_queue.sort(key=lambda x: x[1], reverse=True)
+        self.split_cache = []
 
     def populate(self, sorted_indices="all", keep_bb_min=False): 
         """
@@ -38,7 +39,7 @@ class Tree(Model):
                 left, right = split_sorted_indices(si, node.split_dim, split_index)
             _recurse(node.left, left); _recurse(node.right, right)
         _recurse(self.root, sorted_indices)
-        self.compute_split_queue()
+        self._compute_split_queue()
         return self
 
     def propagate(self, x, mode, contain=False, max_depth=np.inf, path=False):
@@ -77,19 +78,32 @@ class Tree(Model):
                     return left | right | ({node} if path else {})
         return _recurse(self.root)
 
-    def split_next_best(self, min_samples_leaf, pbar=None): 
+    def _queue_to_cache(self, min_samples_leaf):
         """
-        Try to split the first leaf in self.split_queue.
+        Find the greedy split for the first leaf in the split queue and add to the split cache.
         """
         node, _ = self.split_queue.pop(0) 
-        result = node._find_greedy_split(self.split_dims, self.eval_dims, min_samples_leaf)
-        if result is not False: 
-            split_dim, split_index, qual, gains = result
+        self.split_cache.append((node, node._find_greedy_split(self.split_dims, self.eval_dims, min_samples_leaf)))
+        self.split_cache.sort(key=lambda x: x[1][2], reverse=True) 
+        assert set(self.leaves) == set([n for n, _ in self.split_queue]) | set([n for n, _ in self.split_cache])
+
+    def split_next_best(self, min_samples_leaf, num_from_queue=np.inf): 
+        """
+        Split the next leaf.
+        The num_from_queue argument facilitates a tradeoff between heuristically splitting based on var_sum (set to 1)
+        and exhaustively trying every leaf (set to inf).
+        """
+        n = 0
+        while n < num_from_queue:
+            self._queue_to_cache(min_samples_leaf) # Transfer the first leaf in the split queue to the cache.
+            if len(self.split_queue) == 0: break
+            n += 1
+        node, (split_dim, split_index, qual, gains) = self.split_cache.pop(0)        
+        if qual > 0: 
             node._do_split(split_dim, split_index=split_index, gains=gains)
             # If split made, store the two new leaves and add them to the queue.
             parent_index = self.leaves.index(node)
             self.leaves.pop(parent_index) # First remove the parent.
-            # self.leaves += [node.left, node.right]
             self.leaves = self._get_nodes(leaves_only=True) # NOTE: Doing it this way preserves a consistent ordering scheme.
             self.split_queue += [(node.left,  np.dot(node.left.var_sum[self.eval_dims], self.space.global_var_scale[self.eval_dims])),
                                  (node.right, np.dot(node.right.var_sum[self.eval_dims], self.space.global_var_scale[self.eval_dims]))]
@@ -178,7 +192,7 @@ class Tree(Model):
         node.split_dim, node.left, node.right, node.gains = None, None, None, {}
         # Update the list of leaves and split queue.
         self.leaves = self._get_nodes(leaves_only=True) 
-        self.compute_split_queue()
+        self._compute_split_queue()
         return pruned_leaf_nums
 
     def backprop_gains(self):
