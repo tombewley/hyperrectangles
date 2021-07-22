@@ -301,35 +301,3 @@ class Node:
                 mean[0,num_left], var_sum[0,num_left] = increment_mean_and_var_sum(num_left,  mean[0,num_left-1], var_sum[0,num_left-1], x, 1)
                 mean[1,num_left], var_sum[1,num_left] = increment_mean_and_var_sum(num_right, mean[1,num_left-1], var_sum[1,num_left-1], x, -1)            
         return cov_sum if cov else var_sum
-
-# ================================================================
-
-    def _eval_splits_one_dim_transition(self, split_dim, sim_dim, succ_leaf_all, sim_params):
-        """
-        Try splitting the node along one dim using the transition impurity method.
-        """
-        indices = self.sorted_indices[:,split_dim]
-        sim = [None for _ in indices] if sim_dim is None else self.space.data[indices,sim_dim]
-        succ_leaf = [succ_leaf_all[idx] if succ_leaf_all[idx] != self else 1 for idx in indices] # 1 is placeholder for right, 0 is placeholder for left.        
-        indices_split = [set(), set(indices)]
-        imp_sum = np.zeros((2,self.num_samples+1))
-        imp_sum[1,0] = self.t_imp_sum        
-        for num_left in range(1,self.num_samples+1):
-            idx, x, s = indices[num_left-1], sim[num_left-1], succ_leaf[num_left-1]
-            indices_split[0].add(idx); indices_split[1].remove(idx) # Transfer index from left to right.
-            imp_sum[:,num_left] = imp_sum[:,num_left-1] # Copy over previous impurities for incremental.
-            for l_or_r in (0,1): # Left or right.
-                x_l_or_r = sim[:num_left] if l_or_r == 0 else sim[num_left:]
-                succ_leaf_l_or_r = succ_leaf[:num_left] if l_or_r == 0 else succ_leaf[num_left:]
-                # Compute contributition to impurity_sum.
-                contrib = 2*transition_imp_contrib(x, s, x_l_or_r, succ_leaf_l_or_r, sim_params) # Multiply x2 due to symmetry.         
-                imp_sum[l_or_r,num_left] += contrib if l_or_r == 0 else -contrib # Add for left, subtract for right.
-                if idx-1 in indices_split[l_or_r]: # May need to correct impurity contribution of predecessor. 
-                    loc_p = np.where(indices == idx-1)[0][0]
-                    if succ_leaf[loc_p] is not None:
-                        # Correction is a three-step process:
-                        imp_sum[l_or_r,num_left] -= 2*transition_imp_contrib(sim[loc_p], succ_leaf[loc_p], x_l_or_r, succ_leaf_l_or_r, sim_params) # Remove old...
-                        succ_leaf[loc_p] = 0 # ...update...
-                        succ_leaf_l_or_r = succ_leaf[:num_left] if l_or_r == 0 else succ_leaf[num_left:]
-                        imp_sum[l_or_r,num_left] += 2*transition_imp_contrib(sim[loc_p], succ_leaf[loc_p], x_l_or_r, succ_leaf_l_or_r, sim_params) # ...add new.
-        return imp_sum

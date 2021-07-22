@@ -37,19 +37,6 @@ def cov_to_r2(cov):
     return np.triu(r2, k=1)
 
 # ===============================
-# OPERATIONS USED FOR TRANSITION-BASED SPLITTING
-
-def transition_imp_contrib(x, succ_leaf, x_other, succ_leaf_other, sim_params):
-    contrib = 0
-    for x_o, s_o in zip(x_other, succ_leaf_other): 
-        if x is None: sim = 1 # If no similarity data provided, use 1 throughout.
-        elif sim_params["kernel"] == "gaussian": sim = np.exp(-((x - x_o) / sim_params["sigma"])**2) # Gaussian function of similarity.
-        else: raise NotImplementedError() # From discrete label...
-        # Contibution from similarity is flipped depending on whether successor leaf matches.
-        contrib += (sim if succ_leaf != s_o else 1-sim)
-    return contrib 
-
-# ===============================
 # OPERATIONS ON SORTED INDICES
 
 def split_sorted_indices(sorted_indices, split_dim, split_index):
