@@ -169,9 +169,9 @@ class Node:
             except: pass
         return d
 
-    def _do_manual_split(self, split_dim, split_threshold=None, split_index=None):
+    def _do_split(self, split_dim, split_threshold=None, split_index=None, gains=None):
         """
-        Split using a manually-defined split_dim and split_threshold or split_index.
+        Split along split_dim at a specified split_threshold or split_index.
         """
         if split_threshold is not None:
             if not(self.bb_max[split_dim][0] <= split_threshold <= self.bb_max[split_dim][1]): return False
@@ -190,29 +190,29 @@ class Node:
         # Make children.
         self.left = Node(self.space, sorted_indices=left, bb_max=bb_max_left)
         self.right = Node(self.space, sorted_indices=right, bb_max=bb_max_right)
+        # Store gains.
+        if gains is not None: self.gains["immediate"] = gains
         return True
 
-    def _do_greedy_split(self, split_dims, eval_dims, min_samples_leaf):
+    def _find_greedy_split(self, split_dims, eval_dims, min_samples_leaf):
         """
-        Find and implement the greediest split given split_dims and eval_dims.
+        Find the overall greediest split given split_dims and eval_dims.
         """
         # Only attempt to split if there are enough samples.
         if len(self) >= 2*min_samples_leaf:
-            splits, extra = self._find_greedy_splits(split_dims, eval_dims, min_samples_leaf)
+            splits, gains = self._find_greedy_split_per_dim(split_dims, eval_dims, min_samples_leaf)
             if splits:
                 # Sort splits by quality and choose the single best.
                 split_dim, split_index, qual = sorted(splits, key=lambda x: x[2], reverse=True)[0]        
-                if qual > 0:
-                    self.gains["immediate"] = extra
-                    return self._do_manual_split(split_dim, split_index=split_index)
+                if qual > 0: return split_dim, split_index, qual, gains
         return False
 
-    def _find_greedy_splits(self, split_dims, eval_dims, min_samples_leaf):
+    def _find_greedy_split_per_dim(self, split_dims, eval_dims, min_samples_leaf):
         """
         Try splitting the node along several split_dims, measuring quality using eval_dims.  
         Return the best split from each dim.
         """
-        splits, extra = [], []
+        splits, greedy_gains = [], []
         for split_dim in split_dims:
             # Apply two kinds of constraint to the split point:
             #   (1) Must be a "threshold" point where the samples either side do not have equal values.
@@ -220,20 +220,20 @@ class Node:
             #   (2) Must obey min_samples_leaf.
             valid_split_indices = [s for s in valid_split_indices if s >= min_samples_leaf and s <= self.num_samples-min_samples_leaf]
             # Cannot split on a dim if there are no valid split points, so skip.
-            if valid_split_indices == []: extra.append(np.full(len(eval_dims), np.nan)); continue
+            if valid_split_indices == []: greedy_gains.append(np.full(len(eval_dims), np.nan)); continue
             # Evaluate splits along this dim, returning variance sums.
             var_sum = self._eval_splits_one_dim(split_dim, eval_dims, min_samples_leaf)
             # Split quality = sum of reduction in dimensions-scaled variance sums.
-            gain_per_dim = var_sum[1,0] - var_sum[:,valid_split_indices,:].sum(axis=0)
-            qual = (gain_per_dim * self.space.global_var_scale[eval_dims]).sum(axis=1)
+            gains_this_dim = var_sum[1,0] - var_sum[:,valid_split_indices,:].sum(axis=0)
+            qual = (gains_this_dim * self.space.global_var_scale[eval_dims]).sum(axis=1)
             # Greedy split is the one with the highest quality.
             greedy = np.argmax(qual)      
             split_index = valid_split_indices[greedy]   
             qual_max = qual[greedy]
-            extra.append(gain_per_dim[greedy]) # Extra = gain_per_dim at split point.
+            greedy_gains.append(gains_this_dim[greedy]) 
             # Store split info.
             splits.append((split_dim, split_index, qual_max))
-        return splits, np.array(extra)
+        return splits, np.array(greedy_gains)
 
     def _eval_splits_one_dim(self, split_dim, eval_dims, min_samples_leaf):
         """

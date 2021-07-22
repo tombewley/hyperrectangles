@@ -82,10 +82,11 @@ class Tree(Model):
         Try to split the first leaf in self.split_queue.
         """
         node, _ = self.split_queue.pop(0) 
-        ok = node._do_greedy_split(self.split_dims, self.eval_dims, min_samples_leaf)
-        if ok:    
+        result = node._find_greedy_split(self.split_dims, self.eval_dims, min_samples_leaf)
+        if result is not False: 
+            split_dim, split_index, qual, gains = result
+            node._do_split(split_dim, split_index=split_index, gains=gains)
             # If split made, store the two new leaves and add them to the queue.
-            if pbar: pbar.update(1) 
             parent_index = self.leaves.index(node)
             self.leaves.pop(parent_index) # First remove the parent.
             # self.leaves += [node.left, node.right]
