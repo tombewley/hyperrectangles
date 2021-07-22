@@ -88,7 +88,8 @@ class Tree(Model):
             if pbar: pbar.update(1) 
             parent_index = self.leaves.index(node)
             self.leaves.pop(parent_index) # First remove the parent.
-            self.leaves += [node.left, node.right]
+            # self.leaves += [node.left, node.right]
+            self.leaves = self._get_nodes(leaves_only=True) # NOTE: Doing it this way preserves a consistent ordering scheme.
             self.split_queue += [(node.left,  np.dot(node.left.var_sum[self.eval_dims], self.space.global_var_scale[self.eval_dims])),
                                  (node.right, np.dot(node.right.var_sum[self.eval_dims], self.space.global_var_scale[self.eval_dims]))]
             self.split_queue.sort(key=lambda x: x[1], reverse=True) # Sort ready for next time.
@@ -156,7 +157,8 @@ class Tree(Model):
             node._do_manual_split(split_dim, split_index=split_index)
             if pbar: pbar.update(1) 
             self.leaves.pop(self.leaves.index(node)) # First remove the node that's been split.
-            self.leaves += [node.left, node.right]
+            # self.leaves += [node.left, node.right]
+            self.leaves = self._get_nodes(leaves_only=True) # NOTE: Doing it this way preserves a consistent ordering scheme.
 
             if plot:
                 show_rectangles(self, vis_dims=["x","y"], maximise=True, ax=ax)
@@ -288,18 +290,23 @@ class Tree(Model):
         # Subfunction for calculating costs is similar to the _recurse() function inside backprop_gains(),
         # except it takes the weighted sum of var_sum rather than per-feature, and realised only.
         def _recurse(node):
-            var_sum = np.dot(node.var_sum, self.space.global_var_scale)
+            var_sum = np.dot(node.var_sum[self.eval_dims], self.space.global_var_scale[self.eval_dims])
             if node.split_dim is None: return [var_sum], 1
             (left, num_left), (right, num_right) = _recurse(node.left), _recurse(node.right)
             var_sum_leaves, num_leaves = left + right, num_left + num_right
-            costs.append((node, (var_sum - sum(var_sum_leaves)) / (num_leaves - 1), sum(var_sum_leaves), num_leaves)) # ))
+            costs.append((node, (var_sum - sum(var_sum_leaves)) / (num_leaves - 1), sum(var_sum_leaves), num_leaves)) 
             return var_sum_leaves, num_leaves
         costs = []
         _recurse(self.root)
-        # Remove the subtree below the lowest-cost node.
-        node = sorted(costs, key=lambda x: x[1])[0][0]
+        costs.sort(key=lambda x: x[1])
+        # Prune the subtree below the lowest-cost node.
+        node = costs[0][0]
+        pruned_leaf_nums = tuple(self.leaves.index(l) for l in self._get_nodes(source=node, leaves_only=True))
         node.split_dim, node.left, node.right, node.gains = None, None, None, {}
-        self.leaves = self._get_nodes(leaves_only=True) # Update the list of leaves.
+        # Update the list of leaves and split queue.
+        self.leaves = self._get_nodes(leaves_only=True) 
+        self.compute_split_queue()
+        return pruned_leaf_nums
 
     def backprop_gains(self):
         """
@@ -343,7 +350,7 @@ class Tree(Model):
         _recurse(clone.root)
         return clone
 
-    def _get_nodes(self, leaves_only=False):
+    def _get_nodes(self, source=None, leaves_only=False):
         nodes = []
         def _recurse(node):
             if node is None: return
@@ -351,5 +358,5 @@ class Tree(Model):
                 if not leaves_only: nodes.append(node)
                 _recurse(node.left); _recurse(node.right)
             else: nodes.append(node)
-        _recurse(self.root)
+        _recurse(self.root if source is None else source)
         return nodes

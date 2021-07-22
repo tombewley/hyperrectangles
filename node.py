@@ -124,6 +124,7 @@ class Node:
         if len(attr) == 3: dim2 = self.space.idxify(attr[2])
         # Mean, standard deviation, or sqrt of covarance (std_c).
         if attr[0] == 'mean': return self.mean[dim]
+        if attr[0] == 'var': return self.cov[dim,dim]
         if attr[0] == 'std': return np.sqrt(self.cov[dim,dim])
         if attr[0] == 'std_c': return np.sqrt(self.cov[dim,dim2])
         if attr[0] in ('median','iqr','q1q3'):
@@ -239,7 +240,7 @@ class Node:
             #   (2) Must obey min_samples_leaf.
             valid_split_indices = [s for s in valid_split_indices if s >= min_samples_leaf and s <= self.num_samples-min_samples_leaf]
             # Cannot split on a dim if there are no valid split points, so skip.
-            if valid_split_indices == []: extra.append(np.nan); continue
+            if valid_split_indices == []: extra.append(np.full(len(eval_dims), np.nan)); continue
             # Evaluate splits along this dim, returning (co)variance sums.
             cov_or_var_sum = self._eval_splits_one_dim(split_dim, eval_dims, min_samples_leaf, cov=corr)
             if corr: 

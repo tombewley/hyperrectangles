@@ -44,18 +44,18 @@ def show_episodes(space, vis_dims, ep_indices=None, ax=None):
     ep_dim = space.dim_names.index("ep")
     vis_dims = space.idxify(vis_dims)
     if ax is None: _, ax = plt.subplots(); ax.set_xlabel(space.dim_names[vis_dims[0]]); ax.set_ylabel(space.dim_names[vis_dims[1]])
-    ep, s_idx = 0, 0
-    for idx, x in enumerate(space.data): 
-        if x[ep_dim] != ep: 
+    ep, s_idx, n = space.data[0,ep_dim], 0, len(space.data)
+    for idx in range(n+1): 
+        if idx == n or space.data[idx,ep_dim] != ep: 
             if ep_indices==None or ep in ep_indices: 
                 ax.plot(space.data[s_idx:idx, vis_dims[0]],
                         space.data[s_idx:idx, vis_dims[1]],
-                        c="k", lw=0.5
+                        c="k", lw=2, zorder=2
                         )
                 # Start and end markers.
-                ax.scatter(space.data[s_idx, vis_dims[0]], space.data[s_idx, vis_dims[1]], c="b", s=5, zorder=3)
-                ax.scatter(space.data[idx-1, vis_dims[0]], space.data[idx-1, vis_dims[1]], c="g", s=5, zorder=3)
-            ep += 1; s_idx = idx
+                ax.scatter(space.data[s_idx, vis_dims[0]], space.data[s_idx, vis_dims[1]], c="b", s=10, zorder=3)
+                ax.scatter(space.data[idx-1, vis_dims[0]], space.data[idx-1, vis_dims[1]], c="g", s=10, zorder=3)
+            if idx < n: ep = space.data[idx,ep_dim]; s_idx = idx
     return ax
 
 def show_lines(model, attributes, vis_dim=None, max_depth=np.inf, maximise=False, show_spread=False, ax=None):
