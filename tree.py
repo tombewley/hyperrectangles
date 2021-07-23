@@ -188,7 +188,7 @@ class Tree(Model):
         costs.sort(key=lambda x: x[1])
         # Prune the subtree below the lowest-cost node.
         node = costs[0][0]
-        pruned_leaf_nums = tuple(self.leaves.index(l) for l in self._get_nodes(source=node, leaves_only=True))
+        pruned_leaf_nums = [self.leaves.index(l) for l in self._get_nodes(source=node, leaves_only=True)]
         node.split_dim, node.left, node.right, node.gains = None, None, None, {}
         # Update the list of leaves and split queue.
         self.leaves = self._get_nodes(leaves_only=True) 
