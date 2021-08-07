@@ -89,8 +89,8 @@ def bb_clip(bb, clip):
     """
     Clip a bounding box using another.
     """
-    bb[:,0] = np.maximum(bb[:,0], clip[:,0])
-    bb[:,1] = np.minimum(bb[:,1], clip[:,1])
+    bb[:,0] = np.clip(bb[:,0], clip[:,0], clip[:,1])
+    bb[:,1] = np.clip(bb[:,1], clip[:,0], clip[:,1])
     return bb
 
 def closest_point_in_bb(x, bb):
