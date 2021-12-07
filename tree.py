@@ -13,7 +13,7 @@ class Tree(Model):
         self._compute_split_queue()
 
     # Dunder/magic methods.
-    def __repr__(self): return f"{self.name}: tree model with {len(self.leaves)} leaves"
+    def __repr__(self): return f"{self.name}: tree model with {len(self.leaves)} leaves (split: {self.split_dims}, eval: {self.eval_dims})"
 
     def _compute_split_queue(self):
         """
@@ -49,7 +49,7 @@ class Tree(Model):
         if mode == "fuzzy": raise NotImplementedError()
         if path and mode != "max": raise NotImplementedError("Can only return path in maximise mode.")
         x = self.space.listify(x)
-        assert len(x) == len(self.space)
+        assert len(x) == len(self.space), f"Input is {len(x)} dimensional; space is {len(self.space)} dimensional."
         def _recurse(node, depth=0):
             if node is None: return set()
             if node.split_dim is None or depth >= max_depth: 
@@ -188,6 +188,12 @@ class Tree(Model):
         costs.sort(key=lambda x: x[1])
         # Prune the subtree below the lowest-cost node.
         node = costs[0][0]
+        return self._get_nodes().index(node), self.prune_to(node)
+
+    def prune_to(self, node):
+        """
+        Prune to a specified node and return pruned leaf nums for reference.
+        """
         pruned_leaf_nums = [self.leaves.index(l) for l in self._get_nodes(source=node, leaves_only=True)]
         node.split_dim, node.left, node.right, node.gains = None, None, None, {}
         # Update the list of leaves and split queue.

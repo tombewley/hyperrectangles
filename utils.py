@@ -155,7 +155,7 @@ def project(nodes, dims, maximise=False, resolution=None):
             overlapping_nodes = set.intersection(*open_nodes)
             # Only store if there are a nonzero number of overlapping nodes.
             if len(overlapping_nodes) > 0: projections.append([bb, overlapping_nodes])
-    print('Projection complete')
+    # print('Projection complete')
     return projections
     
 # ===============================
@@ -197,7 +197,7 @@ def weighted_average(nodes, dims, bb=None, intersect_dims=None):
         zero_bb_width = (bb[:,1] - bb[:,0]) == 0
         r = []
         for node in nodes:
-            node_bb = node.bb_min[intersect_dims] # NOTE: Always uses bb_min, not bb_max
+            node_bb = node.bb_min[intersect_dims] # NOTE: Always uses bb_min, not bb_max.
             inte = bb_intersect(node_bb, bb)
             node_bb_width = node_bb[:,1] - node_bb[:,0]
             node_bb_width_corr = node_bb_width.copy()

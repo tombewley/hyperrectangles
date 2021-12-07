@@ -36,7 +36,7 @@ def diagram(tree, pred_dims=None, sf=3, verbose=False, decision_node_colour="gra
         if node is None: graph_spec += f'{n} [label="None"];'
         else:   
             if node.split_dim is not None:
-                split = f'{dim_names[node.split_dim]}={round_sf(node.split_threshold, sf)}'
+                split = f'{dim_names[node.split_dim]} >= {round_sf(node.split_threshold, sf)}'
             graph_spec += f'{n} [label="'
             if node.split_dim is None or verbose: 
                 # Leaf number.
@@ -61,8 +61,8 @@ def diagram(tree, pred_dims=None, sf=3, verbose=False, decision_node_colour="gra
                 graph_spec += f'{n_parent} -> {n} [label="{dir_label}"];'
             n += 1
             if node.split_dim is not None: # Recurse to children.
-                graph_spec, n = _recurse(node.left, graph_spec, n, n_here, "<")
-                graph_spec, n = _recurse(node.right, graph_spec, n, n_here, ">=")
+                graph_spec, n = _recurse(node.left, graph_spec, n, n_here, "False") #"<")
+                graph_spec, n = _recurse(node.right, graph_spec, n, n_here, "True") #">=")
         return graph_spec, n
     graph_spec, _ = _recurse(tree.root, graph_spec)
     # Create and save pydot graph.    

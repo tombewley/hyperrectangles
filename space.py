@@ -89,7 +89,7 @@ class Space:
     #     return self.models[name]
 
     def tree_best_first(self, name, split_dims, eval_dims, sorted_indices=None, 
-                        max_num_leaves=np.inf, min_samples_leaf=1, disable_pbar=False): 
+                        max_num_leaves=np.inf, min_samples_leaf=1, num_from_queue=np.inf, disable_pbar=False): 
         """
         Grow a tree best-first to max_num_leaves using samples specified by sorted_indices. 
         """
@@ -100,7 +100,7 @@ class Space:
             self.models[name] = Tree(name, root, split_dims, eval_dims)
             pbar.update(1)
             while len(self.models[name].leaves) < max_num_leaves and len(self.models[name].split_queue) > 0:
-                self.models[name].split_next_best(min_samples_leaf)
+                self.models[name].split_next_best(min_samples_leaf, num_from_queue=num_from_queue)
         return self.models[name]
 
     def model_from_dict(self, name, d):

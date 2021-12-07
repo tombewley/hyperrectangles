@@ -5,7 +5,7 @@ import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
 import mpl_toolkits.mplot3d.art3d as art3d
 
-def show_samples(node, vis_dims, colour_dim=None, alpha=1, spark=False, subsample=None, ax=None):
+def show_samples(node, vis_dims, colour_dim=None, alpha=1, spark=False, subsample=None, ax=None, cbar=True):
     """
     Scatter plot across vis_dims of all the samples contained in node.
     """
@@ -19,7 +19,7 @@ def show_samples(node, vis_dims, colour_dim=None, alpha=1, spark=False, subsampl
         elif len(vis_dims) == 3: fig = plt.figure(); ax = fig.add_subplot(111, projection="3d")
         else: _, ax = plt.subplots()#figsize=(8,8))
     if colour_dim: 
-        colours = _values_to_colours_and_cbar(X_all_dims[:,colour_dim].squeeze(), (mpl.cm.coolwarm_r, 'coolwarm_r'), None, ax)
+        colours = _values_to_colours(X_all_dims[:,colour_dim].squeeze(), (mpl.cm.coolwarm_r, 'coolwarm_r'), None, ax, cbar)
     else: colours = "k"
     # Automatically calculate alpha.
     if alpha is None: alpha = 1 / len(X)**0.5
@@ -107,7 +107,7 @@ def show_leaf_numbers(model, vis_dims, ax=None, fontsize=6):
 
 def show_rectangles(model, vis_dims=None, attribute=None, 
                     slice_dict={}, max_depth=np.inf, maximise=False, project_resolution=None,
-                    vis_lims=None, cmap_lims=None, fill_colour=None, edge_colour=None, ax=None):
+                    vis_lims=None, cmap_lims=None, fill_colour=None, edge_colour=None, ax=None, cbar=True):
     """
     Compute the rectangular projections of nodes from model onto vis_dims, and colour according to attribute.
     Where multiple projections overlap, compute a marginal value using the weighted_average function from utils.
@@ -149,10 +149,10 @@ def show_rectangles(model, vis_dims=None, attribute=None,
     # Create rectangles.
     lims_and_values_to_rectangles(ax, bbs, 
         values=values, cmap=_cmap(attribute), cmap_lims=cmap_lims, 
-        fill_colour=fill_colour, edge_colour=edge_colour)
+        fill_colour=fill_colour, edge_colour=edge_colour, cbar=cbar)
     return ax
 
-def show_difference_rectangles(tree_a, tree_b, vis_dims, attribute, max_depth=np.inf, maximise=False, cmap_lims=None, edge_colour=None, ax=None):
+def show_difference_rectangles(tree_a, tree_b, vis_dims, attribute, max_depth=np.inf, maximise=False, cmap_lims=None, edge_colour=None, ax=None, cbar=True):
     """
     Given two trees with the same two split_dims, display rectangles coloured by the differences in the given attribute.
     TODO: Adapt for slicing. 
@@ -177,14 +177,15 @@ def show_difference_rectangles(tree_a, tree_b, vis_dims, attribute, max_depth=np
                 intersections.append(inte)
                 diffs.append(value_a - value_b)
     # Create rectangles.
-    lims_and_values_to_rectangles(ax, intersections, values=diffs, cmap=_cmap(attribute), cmap_lims=cmap_lims, edge_colour=edge_colour)    
+    lims_and_values_to_rectangles(ax, intersections, values=diffs, cmap=_cmap(attribute), cmap_lims=cmap_lims, edge_colour=edge_colour, cbar=cbar)    
     return ax
 
-def lims_and_values_to_rectangles(ax, lims, offsets=None, values=[None], cmap=None, cmap_lims=None, fill_colour=None, edge_colour=None):
+def lims_and_values_to_rectangles(ax, lims, offsets=None, values=[None], cmap=None, cmap_lims=None, fill_colour=None, edge_colour=None, cbar=True):
     """
     Assemble a rectangle visualisation.
     """
-    if values != [None]: fill_colours = _values_to_colours_and_cbar(values, cmap, cmap_lims, ax)
+    print(sorted(values))
+    if values != [None]: fill_colours = _values_to_colours(values, cmap, cmap_lims, ax, cbar)
     else:
         if fill_colour == None and edge_colour == None: edge_colour = 'k' # Show lines by default if no fill.    
         fill_colours = [fill_colour for _ in lims]
@@ -281,15 +282,16 @@ def _make_rectangle(lims, fill_colour, edge_colour, alpha):
     fill_bool = (fill_colour != None)
     return mpl.patches.Rectangle(xy=[xl,yl], width=xu-xl, height=yu-yl, fill=fill_bool, facecolor=fill_colour, alpha=alpha, edgecolor=edge_colour, lw=0.5, zorder=-1) 
 
-def _values_to_colours_and_cbar(values, cmap, cmap_lims, ax):
+def _values_to_colours(values, cmap, cmap_lims, ax, cbar):
     # Compute fill colour.
     if cmap_lims is None: mn, mx = np.min(values), np.max(values)
     else: mn, mx = cmap_lims
     if mx == mn: colours = [cmap[0](0.5) for _ in values] # Default to midpoint.
     else: colours = [cmap[0](v) for v in (np.array(values) - mn) / (mx - mn)]
-    # Create colour bar.
-    norm = mpl.colors.Normalize(vmin=mn, vmax=mx)
-    ax.figure.colorbar(mpl.cm.ScalarMappable(norm=norm, cmap=cmap[1]), ax=ax)
+    if cbar:
+        # Create colour bar.
+        norm = mpl.colors.Normalize(vmin=mn, vmax=mx)
+        ax.figure.colorbar(mpl.cm.ScalarMappable(norm=norm, cmap=cmap[1]), ax=ax)
     return colours
 
 def _cmap(attribute):
