@@ -4,25 +4,31 @@ import pydot
 import io
 import matplotlib.image as mpimg
 
-def rules(tree, pred_dims=None, sf=3, out_name=None): 
+def rules(tree, pred_dims=None, sf=3, dims_as_indices=True, out_name=None): 
     """
-    Represent tree as a rule set with pred_dims as the consequent.
+    Represent tree as a rule set with pred_dims as the consequent. Formatted as valid Python code.
     """
     pred_dims = tree.space.idxify(pred_dims)
-    dim_names, lines = tree.space.dim_names, []    
+    lines = []
     def _recurse(node, depth=0):
-        i = "    " * depth # Indent.     
+        i = "    " * (depth+1) # Indent.     
         if node is None: lines.append(f"{i}return None")       
         elif node.split_dim is not None:
-            lines.append(f"{i}if {dim_names[node.split_dim]} < {round_sf(node.split_threshold, sf)}:")
+            dim_name = tree.space.dim_names[node.split_dim]
+            if dims_as_indices:
+                dim_text, comment = f"x[{node.split_dim}]", f" # {dim_name}"
+            else: 
+                dim_text, comment = dim_name, ""
+            lines.append(f"{i}if {dim_text} < {round_sf(node.split_threshold, sf)}:{comment}")
             _recurse(node.left, depth+1)
             lines.append(f"{i}else:")
             _recurse(node.right, depth+1)
         else: 
             if pred_dims:
-                lines.append(f"{i}return {round_sf(node.mean[pred_dims], sf)} (n={node.num_samples}, std={round_sf(np.sqrt(np.diag(node.cov)[pred_dims]), sf)})")
-            else: lines.append(f"{i}return (n={node.num_samples})")
+                lines.append(f"{i}return {round_sf(node.mean[pred_dims], sf)} # n={node.num_samples}, std={round_sf(np.sqrt(np.diag(node.cov)[pred_dims]), sf)}")
+            else: lines.append(f"{i}return # n={node.num_samples}")
     _recurse(tree.root)
+    lines.insert(0, f"def {tree.name}(x):")
     if out_name is not None:  # If out_name specified, write out.
         with open(out_name+".py", "w", encoding="utf-8") as f:
             for l in lines: f.write(l+"\n")
