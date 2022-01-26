@@ -10,7 +10,7 @@ class Space:
     Master class for centrally storing data and building models within a vector space.
     """
     def __init__(self, dim_names, data=None):
-        self.dim_names = dim_names
+        self.dim_names = list(dim_names)
         if data is None: data = np.empty((0, len(dim_names))) 
         self.data = data
         # Empty dictionary for storing models.

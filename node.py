@@ -125,6 +125,7 @@ class Node:
         # Mean, standard deviation, or sqrt of covarance (std_c).
         if attr[0] == 'mean': return self.mean[dim]
         if attr[0] == 'var': return self.cov[dim,dim]
+        if attr[0] == 'var_sum': return self.var_sum[dim]
         if attr[0] == 'std': return np.sqrt(self.cov[dim,dim])
         if attr[0] == 'std_c': return np.sqrt(self.cov[dim,dim2])
         if attr[0] in ('median','iqr','q1q3'):

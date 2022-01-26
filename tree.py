@@ -103,8 +103,7 @@ class Tree(Model):
             node._do_split(split_dim, split_index=split_index, gains=gains)
             # If split made, store the two new leaves and add them to the queue.
             parent_index = self.leaves.index(node)
-            self.leaves.pop(parent_index) # First remove the parent.
-            self.leaves = self._get_nodes(leaves_only=True) # NOTE: Doing it this way preserves a consistent ordering scheme.
+            self.leaves = self._get_nodes(leaves_only=True) # NOTE: Doing it this way preserves a consistent ordering scheme.            
             self.split_queue += [(node.left,  np.dot(node.left.var_sum[self.eval_dims], self.space.global_var_scale[self.eval_dims])),
                                  (node.right, np.dot(node.right.var_sum[self.eval_dims], self.space.global_var_scale[self.eval_dims]))]
             self.split_queue.sort(key=lambda x: x[1], reverse=True) # Sort ready for next time.

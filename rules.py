@@ -1,6 +1,8 @@
 from .utils import *
 import numpy as np
 import pydot 
+import io
+import matplotlib.image as mpimg
 
 def rules(tree, pred_dims=None, sf=3, out_name=None): 
     """
@@ -26,7 +28,7 @@ def rules(tree, pred_dims=None, sf=3, out_name=None):
             for l in lines: f.write(l+"\n")
     return "\n".join(lines)
 
-def diagram(tree, pred_dims=None, sf=3, verbose=False, decision_node_colour="gray", out_name=None, png=False):
+def diagram(tree, pred_dims=None, sf=3, verbose=False, decision_node_colour="gray", out_name=None, out_as="svg", size=None):
     """
     Represent tree as a pydot diagram with pred_dims and the consequent.
     """
@@ -64,11 +66,18 @@ def diagram(tree, pred_dims=None, sf=3, verbose=False, decision_node_colour="gra
                 graph_spec, n = _recurse(node.left, graph_spec, n, n_here, "False") #"<")
                 graph_spec, n = _recurse(node.right, graph_spec, n, n_here, "True") #">=")
         return graph_spec, n
-    graph_spec, _ = _recurse(tree.root, graph_spec)
     # Create and save pydot graph.    
+    graph_spec, _ = _recurse(tree.root, graph_spec)
     (graph,) = pydot.graph_from_dot_data(graph_spec+'}') 
-    if png: graph.write_png(f"{out_name if out_name is not None else tree.name}.png") 
-    else:   graph.write_svg(f"{out_name if out_name is not None else tree.name}.svg") 
+    if size is not None: graph.set_size(f"{size[0]},{size[1]}!")
+    if out_as == "png":   graph.write_png(f"{out_name if out_name is not None else tree.name}.png") 
+    elif out_as == "svg": graph.write_svg(f"{out_name if out_name is not None else tree.name}.svg") 
+    elif out_as == "img": # https://stackoverflow.com/a/18522941
+        png_str = graph.create_png()
+        sio = io.BytesIO()
+        sio.write(png_str)
+        sio.seek(0)
+        return mpimg.imread(sio)
 
 def rule(node, maximise=True, sf=3): 
     """

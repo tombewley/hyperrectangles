@@ -5,11 +5,11 @@ import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
 import mpl_toolkits.mplot3d.art3d as art3d
 
-def show_samples(node, vis_dims, colour_dim=None, alpha=1, spark=False, subsample=None, ax=None, cbar=True):
+def show_samples(node, vis_dims, colour_dim=None, alpha=1, spark=False, subsample=None, cmap_lims=None, ax=None, cbar=True):
     """
     Scatter plot across vis_dims of all the samples contained in node.
     """
-    assert len(vis_dims) in (2,3)
+    assert len(vis_dims) in {2,3}
     vis_dims, colour_dim = node.space.idxify(vis_dims, colour_dim)
     X_all_dims = node.space.data[subsample_sorted_indices(node.sorted_indices, subsample)[:,0]]
     X = X_all_dims[:, vis_dims]
@@ -19,22 +19,22 @@ def show_samples(node, vis_dims, colour_dim=None, alpha=1, spark=False, subsampl
         elif len(vis_dims) == 3: fig = plt.figure(); ax = fig.add_subplot(111, projection="3d")
         else: _, ax = plt.subplots()#figsize=(8,8))
     if colour_dim: 
-        colours = _values_to_colours(X_all_dims[:,colour_dim].squeeze(), (mpl.cm.coolwarm_r, 'coolwarm_r'), None, ax, cbar)
+        colours = _values_to_colours(X_all_dims[:,colour_dim].squeeze(), (mpl.cm.Reds_r, "Reds_r"), cmap_lims, ax, cbar)
     else: colours = "k"
     # Automatically calculate alpha.
     if alpha is None: alpha = 1 / len(X)**0.5
     if spark:
         ax.scatter(X[:,0], X[:,1], s=0.25, c=colours, alpha=alpha) 
         y = node.mean[vis_dims[1]]
-        ax.plot(lims[0], [y,y], c='k')
+        ax.plot(lims[0], [y,y], c="k")
     else:
         ax.set_xlabel(node.space.dim_names[vis_dims[0]])
         ax.set_ylabel(node.space.dim_names[vis_dims[1]])
         if len(vis_dims) == 3: 
-            ax.scatter(X[:,0], X[:,1], X[:,2], s=5, c=colours, alpha=alpha) 
+            ax.scatter(X[:,0], X[:,1], X[:,2], s=5, c=colours, alpha=alpha)
             ax.set_zlabel(node.space.dim_names[vis_dims[2]])
         else:
-            ax.scatter(X[:,0], X[:,1], s=5, c=colours, alpha=alpha) 
+            ax.scatter(X[:,0], X[:,1], c=colours, s=10, alpha=alpha, edgecolors="k", linewidth=1)
     return ax
 
 def show_episodes(space, vis_dims, ep_indices=None, ax=None):
@@ -98,11 +98,11 @@ def show_lines(model, attributes, vis_dim=None, max_depth=np.inf, maximise=False
     return ax
 
 def show_leaf_numbers(model, vis_dims, ax=None, fontsize=6):
-    assert len(vis_dims) == 2
+    assert len(vis_dims) in {1,2}
     vis_dims = model.space.idxify(vis_dims)
     if ax is None: _, ax = plt.subplots()
     for n, l in enumerate(model.leaves): 
-        ax.text(l.mean[vis_dims[0]], l.mean[vis_dims[1]], n, ha="center", va="center", fontsize=fontsize)
+        ax.text(l.mean[vis_dims[0]], l.mean[vis_dims[1]] if len(vis_dims) > 1 else 0.5, n, ha="center", va="center", fontsize=fontsize)
     return ax
 
 def show_rectangles(model, vis_dims=None, attribute=None, 
@@ -114,7 +114,7 @@ def show_rectangles(model, vis_dims=None, attribute=None,
     """       
     if vis_dims is None: vis_dims = model.split_dims
     else: vis_dims = model.space.idxify(vis_dims)
-    assert len(vis_dims) == 2, "Must have |vis_dims| = 2." # Will fail if not a tree.
+    assert len(vis_dims) in {1,2}, "Must have |vis_dims| in {1,2}." # Will fail if not a tree.
     
     if vis_lims is not None: vis_lims = np.array(vis_lims) # Manually specify vis_lims.
     else: vis_lims = model.root.bb_min[vis_dims] # Otherwise use bb_min of root (for tree).
@@ -127,7 +127,7 @@ def show_rectangles(model, vis_dims=None, attribute=None,
     try:
         # Check if can avoid doing projection.
         # TODO: This doesn't catch cases when nodes are non-overlapping despite vis_dims != split_dims.
-        if not np.array_equal(vis_dims, model.split_dims): assert not(attribute)  # Will fail if not a tree.            
+        # if not np.array_equal(vis_dims, model.split_dims): assert not(attribute)  # Will fail if not a tree.            
         values = gather(nodes, attribute)
         bbs = [bb_clip(node.bb_max[vis_dims] if maximise else node.bb_min[vis_dims],  vis_lims) for node in nodes]
     except:
@@ -184,7 +184,6 @@ def lims_and_values_to_rectangles(ax, lims, offsets=None, values=[None], cmap=No
     """
     Assemble a rectangle visualisation.
     """
-    print(sorted(values))
     if values != [None]: fill_colours = _values_to_colours(values, cmap, cmap_lims, ax, cbar)
     else:
         if fill_colour == None and edge_colour == None: edge_colour = 'k' # Show lines by default if no fill.    
@@ -255,8 +254,9 @@ def show_shap_dependence(tree, node, wrt_dim, shap_dim, vis_dim=None, deint_dim=
 
 def _ax_setup(ax, model, vis_dims, attribute=None, diff=False, tree_b=None, derivs=False, slice_dict={}):
     if ax is None: _, ax = plt.subplots(figsize=(12,8))#(3,12/5))
-    vis_dim_names = [model.space.dim_names[v] for v in vis_dims]
-    ax.set_xlabel(vis_dim_names[0]); ax.set_ylabel(vis_dim_names[1])
+    ax.set_xlabel(model.space.dim_names[vis_dims[0]])
+    if len(vis_dims) == 1: ax.set_yticks([])
+    else: ax.set_ylabel(model.space.dim_names[vis_dims[1]])
     title = model.name
     if diff: title += f' vs {tree_b.name}\n$\Delta$ in {attribute[0]} of {attribute[1]}'
     elif attribute: title += f'\n{attribute[0]} of {attribute[1]}'
@@ -278,6 +278,7 @@ def _ax_spark(ax, lims):
     return ax
 
 def _make_rectangle(lims, fill_colour, edge_colour, alpha):
+    if len(lims) == 1: lims = [lims[0], [0, 1]] # Handle when only 1D lims specified.
     (xl, xu), (yl, yu) = lims
     fill_bool = (fill_colour != None)
     return mpl.patches.Rectangle(xy=[xl,yl], width=xu-xl, height=yu-yl, fill=fill_bool, facecolor=fill_colour, alpha=alpha, edgecolor=edge_colour, lw=0.5, zorder=-1) 
@@ -297,4 +298,4 @@ def _values_to_colours(values, cmap, cmap_lims, ax, cbar):
 def _cmap(attribute):
     if attribute is None: return None
     if attribute[0] in ('std','std_c','iqr'): return (mpl.cm.coolwarm, 'coolwarm') # Reverse for measures of spread.
-    else:                                     return (mpl.cm.coolwarm_r, 'coolwarm_r')                 
+    else:                                     return (mpl.cm.Reds_r, 'Reds_r')                
