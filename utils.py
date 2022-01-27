@@ -165,6 +165,7 @@ def round_sf(X, sf):
     """
     Round a float to the given number of significant figures.
     """
+    if sf is None: return X
     try: 
         # For single value.
         return np.format_float_positional(X, precision=sf, unique=False, fractional=False, trim='k') 

@@ -30,7 +30,7 @@ def rules(tree, pred_dims=None, sf=3, dims_as_indices=True, out_name=None):
     _recurse(tree.root)
     lines.insert(0, f"def {tree.name}(x):")
     if out_name is not None:  # If out_name specified, write out.
-        with open(out_name+".py", "w", encoding="utf-8") as f:
+        with open(out_name, "w", encoding="utf-8") as f:
             for l in lines: f.write(l+"\n")
     return "\n".join(lines)
 
