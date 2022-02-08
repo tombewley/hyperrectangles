@@ -40,11 +40,11 @@ def diagram(tree, pred_dims=None, sf=3, verbose=False, decision_node_colour="gra
     """
     if pred_dims: pred_dims = tree.space.idxify(pred_dims)
     dim_names = tree.space.dim_names; graph_spec = 'digraph Tree {node [shape=box];'
-    def _recurse(node, graph_spec, n=0, n_parent=0, dir_label="<"):
+    def _recurse(node, graph_spec, n=0, n_parent=0, dir_label=None):
         if node is None: graph_spec += f'{n} [label="None"];'
         else:   
             if node.split_dim is not None:
-                split = f'{dim_names[node.split_dim]} >= {round_sf(node.split_threshold, sf)}'
+                split = f'{dim_names[node.split_dim]} < {round_sf(node.split_threshold, sf)}'
             graph_spec += f'{n} [label="'
             if node.split_dim is None or verbose: 
                 # Leaf number.
@@ -64,13 +64,12 @@ def diagram(tree, pred_dims=None, sf=3, verbose=False, decision_node_colour="gra
                 graph_spec += f'{split}", style=filled, fillcolor="{decision_node_colour}' # Decision node (non-verbose)
             graph_spec += '", fontname = "sans-serif"];'
             n_here = n
-            if n_here > 0: 
-                # Edge.
-                graph_spec += f'{n_parent} -> {n} [label="{dir_label}"];'
+            if n_here > 0: # Make edge from parent.
+                graph_spec += f'{n_parent} -> {n} [label="{dir_label}"];' 
             n += 1
             if node.split_dim is not None: # Recurse to children.
-                graph_spec, n = _recurse(node.left, graph_spec, n, n_here, "False") #"<")
-                graph_spec, n = _recurse(node.right, graph_spec, n, n_here, "True") #">=")
+                graph_spec, n = _recurse(node.left, graph_spec, n, n_here, "True")
+                graph_spec, n = _recurse(node.right, graph_spec, n, n_here, "False")
         return graph_spec, n
     # Create and save pydot graph.    
     graph_spec, _ = _recurse(tree.root, graph_spec)
@@ -84,6 +83,7 @@ def diagram(tree, pred_dims=None, sf=3, verbose=False, decision_node_colour="gra
         sio.write(png_str)
         sio.seek(0)
         return mpimg.imread(sio)
+    else: raise ValueError()
 
 def rule(node, maximise=True, sf=3): 
     """
