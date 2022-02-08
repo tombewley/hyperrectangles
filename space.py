@@ -7,7 +7,7 @@ from tqdm import tqdm
 
 class Space:
     """
-    Master class for centrally storing data and building models within a vector space.
+    Master class for centrally storing data and building models within a continuous space.
     """
     def __init__(self, dim_names, data=None):
         self.dim_names = list(dim_names)

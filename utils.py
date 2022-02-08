@@ -73,6 +73,22 @@ def dataframe(space, sorted_indices, index_col):
     import pandas as pd
     return pd.DataFrame(space.data[sorted_indices[:,0]], columns=space.dim_names).set_index(index_col)
 
+def group_along_dim(space, dim):
+    """
+    Create a list by grouping the data along dim, then sub-sorting the indices.
+    """
+    dim = space.idxify(dim)
+    sorted_indices = space.all_sorted_indices[:,dim]
+    data_grouped, pos_last = [], 0
+    for pos, idx in enumerate(sorted_indices):
+        dim_value = space.data[idx,dim]
+        if pos == 0: dim_value_last = dim_value
+        elif dim_value != dim_value_last:
+            data_grouped.append(space.data[np.sort(sorted_indices[pos_last:pos])]) 
+            pos_last, dim_value_last = pos, dim_value
+    data_grouped.append(space.data[np.sort(sorted_indices[pos_last:])]) 
+    return data_grouped    
+
 # ===============================
 # OPERATIONS ON BOUNDING BOXES
 

@@ -41,21 +41,15 @@ def show_episodes(space, vis_dims, ep_indices=None, ax=None):
     """
     Show all samples in a space as per-episode line plots.
     """
-    ep_dim = space.dim_names.index("ep")
-    vis_dims = space.idxify(vis_dims)
+    ep_dim, vis_dims = space.idxify("ep"), space.idxify(vis_dims)
     if ax is None: _, ax = plt.subplots(); ax.set_xlabel(space.dim_names[vis_dims[0]]); ax.set_ylabel(space.dim_names[vis_dims[1]])
-    ep, s_idx, n = space.data[0,ep_dim], 0, len(space.data)
-    for idx in range(n+1): 
-        if idx == n or space.data[idx,ep_dim] != ep: 
-            if ep_indices==None or ep in ep_indices: 
-                ax.plot(space.data[s_idx:idx, vis_dims[0]],
-                        space.data[s_idx:idx, vis_dims[1]],
-                        c="k", lw=2, zorder=2
-                        )
-                # Start and end markers.
-                ax.scatter(space.data[s_idx, vis_dims[0]], space.data[s_idx, vis_dims[1]], c="b", s=10, zorder=3)
-                ax.scatter(space.data[idx-1, vis_dims[0]], space.data[idx-1, vis_dims[1]], c="g", s=10, zorder=3)
-            if idx < n: ep = space.data[idx,ep_dim]; s_idx = idx
+    for ep in group_along_dim(space, ep_dim):
+        n = ep[0,ep_dim]
+        if ep_indices==None or n in ep_indices: 
+            x, y = ep[:,vis_dims[0]], ep[:,vis_dims[1]]
+            ax.plot(x, y, c="k", lw=2, zorder=2)
+            ax.scatter(x[0], y[0], c="r", s=10, zorder=3) # Start and end markers.
+            ax.scatter(x[-1], y[-1], c="g", s=10, zorder=3)
     return ax
 
 def show_lines(model, attributes, vis_dim=None, max_depth=np.inf, maximise=False, show_spread=False, ax=None):
