@@ -46,7 +46,7 @@ class Node:
         """
         Populate the node with samples and compute statistics.
         """
-        if sorted_indices is None: sorted_indices = np.empty((0, len(self.space)))
+        if sorted_indices is None: sorted_indices = np.empty((0, len(self.space)), dtype=int)
         self.sorted_indices = sorted_indices
         self.num_samples, num_dims = sorted_indices.shape
         if self.num_samples > 0: 

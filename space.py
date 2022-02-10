@@ -202,6 +202,9 @@ class Space:
             dim_lists.append(dim_list)
         return dim_lists if len(dim_lists) > 1 else dim_lists[0]
 
+    def empty_clone(self):
+        return Space(self.dim_names)
+
     def _preflight_check(self, split_dims, eval_dims, sorted_indices):
         split_dims, eval_dims = self.idxify(split_dims, eval_dims)
         # If indices not specified, use all.

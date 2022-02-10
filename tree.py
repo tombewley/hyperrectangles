@@ -1,4 +1,5 @@
 from .model import Model
+from .node import Node
 from .utils import *
 import numpy as np
 
@@ -14,6 +15,7 @@ class Tree(Model):
 
     # Dunder/magic methods.
     def __repr__(self): return f"{self.name}: tree model with {len(self.leaves)} leaves (split: {self.split_dims}, eval: {self.eval_dims})"
+    def __sub__(self, other): return self.diff(other)
 
     def _compute_split_queue(self):
         """
@@ -164,6 +166,43 @@ class Tree(Model):
         subtree_root = _recurse_minimise(dca_copy)
         subtree_split_dims = sorted(list(subtree_split_dims - {None})) 
         return Tree(name, subtree_root, subtree_split_dims, eval_dims_copy)
+
+    def diff(self, other, resolution=0):
+        """
+        Return a "differential tree".
+        """
+        assert self.space.dim_names == other.space.dim_names, "Trees must be in equivalent spaces."
+
+        root = Node(self.space.empty_clone())
+
+        active_nodes = {root}
+        self_node = self.root
+        other_node = other.root
+
+        print(self_node.split_dim, self_node.split_threshold)
+        print(other_node.split_dim, other_node.split_threshold)
+
+        print(active_nodes)
+        active_children = set()
+        for node in active_nodes: 
+            node._do_split(self_node.split_dim, self_node.split_threshold)
+            if self_node.split_dim == other_node.split_dim:
+                if abs(self_node.split_threshold - other_node.split_threshold) <= resolution:
+                    # Case A: Add no children; branching factor = 2
+                    pass
+                else:
+                    # Case B: Add one child; branching factor = 3
+                    pass
+            else:
+                # Case C: Add both children; branching factor = 4
+                pass
+            
+        print(active_children)
+        for child in active_children: 
+            child._do_split(other_node.split_dim, other_node.split_threshold)
+    
+        split_dims_union = []
+        return Tree(f"{self.name}_sub_{other.name}", root, split_dims_union, [])
 
     def prune_mccp(self):
         """
