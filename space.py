@@ -166,10 +166,10 @@ class Space:
         self.models[name] = Tree(name, root, sorted(split_dims), eval_dims)
         return self.models[name]
 
-    def fsm_from_model(self, name, model, X, pbar=True):
-        from .fsm import FSM
-        self.fsms[name] = FSM(name, model, data=X, pbar=pbar)
-        return self.fsms[name]
+    # def fsm_from_model(self, name, model, X, pbar=True):
+    #     from .fsm import FSM
+    #     self.fsms[name] = FSM(name, model, data=X, pbar=pbar)
+    #     return self.fsms[name]
 
     def idxify(self, *args):
         """
