@@ -5,6 +5,25 @@ from itertools import product
 # ===============================
 # OPERATIONS USED FOR VARIANCE-BASED SPLITTING
 
+def qual_weighted_var_sum(node, split_dim, eval_dims, valid_split_indices):
+    """
+    Evaluate all valid splits of node along split_dim, incrementally calculating variance sums along eval_dims.
+    Then calculate split quality = sum of reduction in dimension-scaled variance sums.  
+    """
+    eval_data = node.space.data[node.sorted_indices[:,split_dim][:,None],eval_dims] 
+    max_num_left = valid_split_indices[-1] + 1 # +1 needed
+    mean = np.zeros((2, max_num_left, len(eval_dims)))
+    var_sum = mean.copy()
+    mean[1,0] = node.mean[eval_dims] 
+    var_sum[1,0] = node.var_sum[eval_dims]
+    for num_left in range(1, max_num_left): # Need to start at 1 for incremental calculation to work
+        num_right = node.num_samples - num_left
+        x = eval_data[num_left-1]
+        mean[0,num_left], var_sum[0,num_left] = increment_mean_and_var_sum(num_left,  mean[0,num_left-1], var_sum[0,num_left-1], x, 1)
+        mean[1,num_left], var_sum[1,num_left] = increment_mean_and_var_sum(num_right, mean[1,num_left-1], var_sum[1,num_left-1], x, -1)                    
+    gains = var_sum[1,0] - var_sum[:,valid_split_indices,:].sum(axis=0)
+    return (gains * node.space.global_var_scale[eval_dims]).sum(axis=1)
+
 def increment_mean_and_var_sum(n, mean, var_sum, x, sign):
     """
     Welford's online algorithm for incremental sum-of-variance computation,

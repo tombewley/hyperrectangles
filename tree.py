@@ -7,10 +7,11 @@ class Tree(Model):
     """
     Class for a tree, which inherits from model and introduces a few tree-specific methods.
     """
-    def __init__(self, name, root, split_dims, eval_dims):
+    def __init__(self, name, root, split_dims, eval_dims, qual_func=qual_weighted_var_sum):
         Model.__init__(self, name, leaves=None) # Don't explicitly pass leaves because they're under root.
         self.root, self.space, self.split_dims, self.eval_dims = root, root.space, split_dims, eval_dims
         self.leaves = self._get_nodes(leaves_only=True) # Collect the list of leaves.
+        self.qual_func = qual_func
         self._compute_split_queue()
 
     # Dunder/magic methods.
@@ -85,7 +86,7 @@ class Tree(Model):
         Find the greedy split for the first leaf in the split queue and add to the split cache.
         """
         node, _ = self.split_queue.pop(0) 
-        self.split_cache.append((node, node._find_greedy_split(self.split_dims, self.eval_dims, min_samples_leaf, store_all_qual)))
+        self.split_cache.append((node, node._find_greedy_split(self.qual_func, self.split_dims, self.eval_dims, min_samples_leaf, store_all_qual)))
         self.split_cache.sort(key=lambda x: x[1][2], reverse=True) 
         assert set(self.leaves) == set([n for n, _ in self.split_queue]) | set([n for n, _ in self.split_cache])
 
@@ -95,21 +96,17 @@ class Tree(Model):
         The num_from_queue argument facilitates a tradeoff between heuristically splitting based on var_sum (set to 1)
         and exhaustively trying every leaf (set to inf).
         """
-        n = 0
-        while n < num_from_queue:
+        for _ in range(min(num_from_queue, len(self.split_queue))):
             self._queue_to_cache(min_samples_leaf, store_all_qual) # Transfer the first leaf in the split queue to the cache.
-            if len(self.split_queue) == 0: break
-            n += 1
         node, (split_dim, split_index, qual, gains) = self.split_cache.pop(0)        
         if qual > 0: 
             node._do_split(split_dim, split_index=split_index, gains=gains)
             # If split made, store the two new leaves and add them to the queue.
-            parent_index = self.leaves.index(node)
             self.leaves = self._get_nodes(leaves_only=True) # NOTE: Doing it this way preserves a consistent ordering scheme.            
             self.split_queue += [(node.left,  np.dot(node.left.var_sum[self.eval_dims], self.space.global_var_scale[self.eval_dims])),
                                  (node.right, np.dot(node.right.var_sum[self.eval_dims], self.space.global_var_scale[self.eval_dims]))]
             self.split_queue.sort(key=lambda x: x[1], reverse=True) # Sort ready for next time.
-            return parent_index, node.split_dim, node.split_threshold
+            return node
         return None
 
     def dca_subtree(self, name, nodes): 
