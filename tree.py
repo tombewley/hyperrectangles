@@ -24,7 +24,7 @@ class Tree(Model):
         """
         self.split_queue = [(leaf, np.dot(leaf.var_sum[self.eval_dims], self.space.global_var_scale[self.eval_dims])) for leaf in self.leaves]
         self.split_queue.sort(key=lambda x: x[1], reverse=True)
-        self.split_cache = []
+        self.split_cache, self.split_skipped = [], set()
 
     def populate(self, sorted_indices="all", keep_bb_min=False): 
         """
@@ -87,8 +87,8 @@ class Tree(Model):
         """
         node, _ = self.split_queue.pop(0) 
         self.split_cache.append((node, node._find_greedy_split(self.qual_func, self.split_dims, self.eval_dims, min_samples_leaf, store_all_qual)))
-        self.split_cache.sort(key=lambda x: x[1][2], reverse=True) 
-        assert set(self.leaves) == set([n for n, _ in self.split_queue]) | set([n for n, _ in self.split_cache])
+        self.split_cache.sort(key=lambda x: x[1][2], reverse=True)
+        assert set(self.leaves) == set([n for n, _ in self.split_queue]) | set([n for n, _ in self.split_cache]) | self.split_skipped
 
     def split_next_best(self, min_samples_leaf, num_from_queue=np.inf, store_all_qual=False): 
         """
@@ -98,7 +98,7 @@ class Tree(Model):
         """
         for _ in range(min(num_from_queue, len(self.split_queue))):
             self._queue_to_cache(min_samples_leaf, store_all_qual) # Transfer the first leaf in the split queue to the cache.
-        node, (split_dim, split_index, qual, gains) = self.split_cache.pop(0)        
+        node, (split_dim, split_index, qual, gains) = self.split_cache.pop(0)
         if qual > 0: 
             node._do_split(split_dim, split_index=split_index, gains=gains)
             # If split made, store the two new leaves and add them to the queue.
@@ -106,8 +106,9 @@ class Tree(Model):
             self.split_queue += [(node.left,  np.dot(node.left.var_sum[self.eval_dims], self.space.global_var_scale[self.eval_dims])),
                                  (node.right, np.dot(node.right.var_sum[self.eval_dims], self.space.global_var_scale[self.eval_dims]))]
             self.split_queue.sort(key=lambda x: x[1], reverse=True) # Sort ready for next time.
+            self.split_skipped = set()
             return node
-        return None
+        self.split_skipped.add(node)
 
     def dca_subtree(self, name, nodes): 
         """ 

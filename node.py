@@ -23,7 +23,7 @@ class Node:
         assert self.bb_min.shape == self.bb_max.shape == (len(self.space), 2)
 
     # Dunder/magic methods.
-    def __repr__(self): return f"Node with {self.num_samples} samples"
+    def __repr__(self): return f"Node at {hex(id(self))} with {self.num_samples} samples"
     def __call__(self, *args, **kwargs): return self.membership(*args, **kwargs)
     def __len__(self): return len(self.sorted_indices)
     def __getitem__(self, key): 
