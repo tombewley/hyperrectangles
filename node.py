@@ -8,8 +8,8 @@ class Node:
     Class for a node, which is characterised by its samples (sorted_indices of data from space), 
     mean, covariance matrix and minimal and maximal bounding boxes. 
     """
-    def __init__(self, space, sorted_indices=None, bb_min=None, bb_max=None, meta={}):
-        self.space = space # To refer back to the space class.     
+    def __init__(self, space, parent=None, sorted_indices=None, bb_min=None, bb_max=None, meta={}):
+        self.space, self.parent = space, parent # "Back-link" to the space and parent node.
         self.bb_max = np.array(bb_max if bb_max is not None else # If a maximal bounding box has been provided, use that.
                       [[-np.inf, np.inf] for _ in self.space.dim_names]) # Otherwise, bb_max is infinite.
         # These attributes are defined if and when the node is split.
@@ -189,8 +189,8 @@ class Node:
         bb_max_left = self.bb_max.copy(); bb_max_left[self.split_dim,1] = self.split_threshold
         bb_max_right = self.bb_max.copy(); bb_max_right[self.split_dim,0] = self.split_threshold
         # Make children.
-        self.left = Node(self.space, sorted_indices=left, bb_max=bb_max_left)
-        self.right = Node(self.space, sorted_indices=right, bb_max=bb_max_right)
+        self.left = Node(self.space, parent=self, sorted_indices=left, bb_max=bb_max_left)
+        self.right = Node(self.space, parent=self, sorted_indices=right, bb_max=bb_max_right)
         # Store gains.
         if gains is not None: self.gains["immediate"] = gains
         return True

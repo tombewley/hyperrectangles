@@ -230,8 +230,8 @@ class Tree(Model):
         """
         Prune to a specified node and return pruned leaf nums for reference.
         """
-        pruned_leaf_nums = [self.leaves.index(l) for l in self._get_nodes(source=node, leaves_only=True)]
-        node.split_dim, node.left, node.right, node.gains = None, None, None, {}
+        pruned_leaf_nums = {self.leaves.index(l) for l in self._get_nodes(source=node, leaves_only=True)}
+        node.split_dim, node.split_threshold, node.left, node.right, node.gains = None, None, None, None, {}
         # Update the list of leaves and split queue.
         self.leaves = self._get_nodes(leaves_only=True) 
         self._compute_split_queue()
