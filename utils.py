@@ -11,6 +11,13 @@ def variance_based_split_finder(node, split_dims, eval_dims, min_samples_leaf, s
     Try splitting the node along several split_dims, measuring quality using eval_dims.
     Return the best split from each dim.
     """
+
+    parent_mean = node.mean[eval_dims]
+    parent_var_sum = node.var_sum[eval_dims]
+    parent_num_samples = node.num_samples
+    var_scale = node.space.global_var_scale[eval_dims]
+
+
     splits, greedy_gains = [], []
     if store_all_qual: node.all_split_thresholds, node.all_qual = {}, {}
     for split_dim in split_dims:
@@ -25,7 +32,8 @@ def variance_based_split_finder(node, split_dims, eval_dims, min_samples_leaf, s
         if len(valid_split_indices) == 0: continue
             # greedy_gains.append(np.full(len(eval_dims), np.nan)) # NOTE: Not implemented
         # Evaluate the quality of splits along this dim.
-        qual_this_dim = qual_weighted_var_sum(node, split_dim, eval_dims, valid_split_indices)
+        eval_data = node.space.data[node.sorted_indices[:,split_dim][:,None],eval_dims]
+        qual_this_dim = qual_weighted_var_sum(eval_data, valid_split_indices, parent_mean, parent_var_sum, parent_num_samples, var_scale)
         # Greedy split is the one with the highest quality.
         greedy = np.argmax(qual_this_dim)
         split_index = valid_split_indices[greedy]
@@ -39,21 +47,12 @@ def variance_based_split_finder(node, split_dims, eval_dims, min_samples_leaf, s
             node.all_qual[split_dim] = qual_this_dim
     return splits, np.array(greedy_gains)
 
-
-def qual_weighted_var_sum(node, split_dim, eval_dims, valid_split_indices):
+@numba.njit(cache=True, parallel=False)
+def qual_weighted_var_sum(eval_data, valid_split_indices, parent_mean, parent_var_sum, parent_num_samples, var_scale):
     """
     Evaluate all valid splits of node along split_dim, incrementally calculating variance sums along eval_dims.
     Then calculate split quality = sum of reduction in dimension-scaled variance sums.  
     """
-    eval_data = node.space.data[node.sorted_indices[:,split_dim][:,None],eval_dims] 
-    parent_mean = node.mean[eval_dims]
-    parent_var_sum = node.var_sum[eval_dims]
-    parent_num_samples = node.num_samples
-    var_scale = node.space.global_var_scale[eval_dims]
-    return _qual_weighted_var_sum_inner(eval_data, valid_split_indices, parent_mean, parent_var_sum, parent_num_samples, var_scale)
-
-@numba.njit(cache=True, parallel=False)
-def _qual_weighted_var_sum_inner(eval_data, valid_split_indices, parent_mean, parent_var_sum, parent_num_samples, var_scale):
     def increment_mean_and_var_sum(n, mean, var_sum, x, sign):
         """
         Welford's online algorithm for incremental sum-of-variance computation,
