@@ -1,9 +1,44 @@
 import numpy as np
 import bisect
 from itertools import product
+import numba
 
 # ===============================
 # OPERATIONS USED FOR VARIANCE-BASED SPLITTING
+
+def variance_based_split_finder(node, split_dims, eval_dims, min_samples_leaf, store_all_qual=False):
+    """
+    Try splitting the node along several split_dims, measuring quality using eval_dims.
+    Return the best split from each dim.
+    """
+    splits, greedy_gains = [], []
+    if store_all_qual: node.all_split_thresholds, node.all_qual = {}, {}
+    for split_dim in split_dims:
+        # Apply two kinds of constraint to the split point:
+        #   (1) Must be a "threshold" point where the samples either side do not have equal values.
+        split_data = node.space.data[node.sorted_indices[:,split_dim][:,None],split_dim]
+        valid_split_indices = np.unique(split_data, return_index=True)[1]
+        #   (2) Must obey min_samples_leaf.
+        mask = np.logical_and(valid_split_indices >= min_samples_leaf, valid_split_indices <= node.num_samples-min_samples_leaf)
+        valid_split_indices = valid_split_indices[mask]
+        # Cannot split on a dim if there are no valid split points, so skip.
+        if len(valid_split_indices) == 0: continue
+            # greedy_gains.append(np.full(len(eval_dims), np.nan)) # NOTE: Not implemented
+        # Evaluate the quality of splits along this dim.
+        qual_this_dim = qual_weighted_var_sum(node, split_dim, eval_dims, valid_split_indices)
+        # Greedy split is the one with the highest quality.
+        greedy = np.argmax(qual_this_dim)
+        split_index = valid_split_indices[greedy]
+        qual_max = qual_this_dim[greedy]
+        # greedy_gains.append(gains_this_dim[greedy]) # NOTE: Not implemented
+        # Store split info.
+        splits.append((split_dim, split_index, qual_max))
+        # If applicable, store all split thresholds and quality values.
+        if store_all_qual:
+            node.all_split_thresholds[split_dim] = (split_data[valid_split_indices-1] + split_data[valid_split_indices]) / 2
+            node.all_qual[split_dim] = qual_this_dim
+    return splits, np.array(greedy_gains)
+
 
 def qual_weighted_var_sum(node, split_dim, eval_dims, valid_split_indices):
     """
@@ -11,29 +46,37 @@ def qual_weighted_var_sum(node, split_dim, eval_dims, valid_split_indices):
     Then calculate split quality = sum of reduction in dimension-scaled variance sums.  
     """
     eval_data = node.space.data[node.sorted_indices[:,split_dim][:,None],eval_dims] 
+    parent_mean = node.mean[eval_dims]
+    parent_var_sum = node.var_sum[eval_dims]
+    parent_num_samples = node.num_samples
+    var_scale = node.space.global_var_scale[eval_dims]
+    return _qual_weighted_var_sum_inner(eval_data, valid_split_indices, parent_mean, parent_var_sum, parent_num_samples, var_scale)
+
+@numba.njit(cache=True, parallel=False)
+def _qual_weighted_var_sum_inner(eval_data, valid_split_indices, parent_mean, parent_var_sum, parent_num_samples, var_scale):
+    def increment_mean_and_var_sum(n, mean, var_sum, x, sign):
+        """
+        Welford's online algorithm for incremental sum-of-variance computation,
+        adapted from https://fanf2.user.srcf.net/hermes/doc/antiforgery/stats.pdf
+        """
+        d_last = x - mean
+        mean = mean + (sign * (d_last / n)) # Can't do += because this modifies the NumPy array in place!
+        d = x - mean
+        var_sum = var_sum + (sign * (d_last * d))
+        return mean, np.maximum(var_sum, 0) # Clip at zero.
+
     max_num_left = valid_split_indices[-1] + 1 # +1 needed
-    mean = np.zeros((2, max_num_left, len(eval_dims)))
+    mean = np.zeros((2, max_num_left, eval_data.shape[1]))
     var_sum = mean.copy()
-    mean[1,0] = node.mean[eval_dims] 
-    var_sum[1,0] = node.var_sum[eval_dims]
+    mean[1,0] = parent_mean
+    var_sum[1,0] = parent_var_sum
     for num_left in range(1, max_num_left): # Need to start at 1 for incremental calculation to work
-        num_right = node.num_samples - num_left
+        num_right = parent_num_samples - num_left
         x = eval_data[num_left-1]
         mean[0,num_left], var_sum[0,num_left] = increment_mean_and_var_sum(num_left,  mean[0,num_left-1], var_sum[0,num_left-1], x, 1)
         mean[1,num_left], var_sum[1,num_left] = increment_mean_and_var_sum(num_right, mean[1,num_left-1], var_sum[1,num_left-1], x, -1)                    
     gains = var_sum[1,0] - var_sum[:,valid_split_indices,:].sum(axis=0)
-    return (gains * node.space.global_var_scale[eval_dims]).sum(axis=1)
-
-def increment_mean_and_var_sum(n, mean, var_sum, x, sign):
-    """
-    Welford's online algorithm for incremental sum-of-variance computation,
-    adapted from https://fanf2.user.srcf.net/hermes/doc/antiforgery/stats.pdf
-    """
-    d_last = x - mean
-    mean = mean + (sign * (d_last / n)) # Can't do += because this modifies the NumPy array in place!
-    d = x - mean
-    var_sum = var_sum + (sign * (d_last * d))
-    return mean, np.maximum(var_sum, 0) # Clip at zero.
+    return (gains * var_scale).sum(axis=1)
 
 # ===============================
 # OPERATIONS ON SORTED INDICES
