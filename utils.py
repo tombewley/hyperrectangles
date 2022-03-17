@@ -15,27 +15,25 @@ def variance_based_split_finder(node, split_dims, eval_dims, min_samples_leaf, s
     parent_var_sum = node.var_sum[eval_dims]
     parent_num_samples = node.num_samples
     var_scale = node.space.global_var_scale[eval_dims]
-    splits, greedy_gains = [], []
-    if store_all_qual: node.all_split_thresholds, node.all_qual = {}, {}
-    for split_dim in split_dims: # TODO: May be possible to realise further speed improvements by parallelising with numba.prange
-        split_data = node.space.data[node.sorted_indices[:,split_dim][:,None],split_dim]
-        eval_data = node.space.data[node.sorted_indices[:,split_dim][:,None],eval_dims]
-        valid_split_indices, qual, split_index, qual_max = qual_weighted_var_sum(split_data, eval_data, min_samples_leaf,
-                                                           parent_mean, parent_var_sum, parent_num_samples, var_scale)
-        if valid_split_indices is not None:
-            # greedy_gains.append(gains_this_dim[greedy]) # NOTE: Not implemented
-            # Store split info.
-            splits.append((split_dim, split_index, qual_max))
-            # If applicable, store all split thresholds and quality values
-            if store_all_qual:
-                node.all_split_thresholds[split_dim] = (split_data[valid_split_indices-1] + split_data[valid_split_indices]) / 2
-                node.all_qual[split_dim] = qual
-    return splits, np.array(greedy_gains)
+    split_data = node.space.data[node.sorted_indices[:,split_dims],split_dims]
+    eval_data = node.space.data[node.sorted_indices[:,split_dims][:,:,None],eval_dims]
+    # Jitted inner function
+    split_indices, quals = _vbsf_inner(split_data, eval_data, min_samples_leaf, parent_mean, parent_var_sum, parent_num_samples, var_scale)
+    splits = []
+    for split_dim, split_index, qual in zip(split_dims, split_indices, quals):
+        if not np.isnan(qual): splits.append((split_dim, split_index, qual))
+    # If applicable, store all split thresholds and quality values
+    if store_all_qual:
+        raise NotImplementedError()
+        node.all_split_thresholds, node.all_qual = {}, {}
+        node.all_split_thresholds[split_dims[d]] = (split_data[valid_split_indices-1,d] + split_data[valid_split_indices,d]) / 2
+        node.all_qual[split_dims[d]] = qual
+    return splits, np.array([]) # NOTE: Greedy gains not implemented
 
-@numba.njit(cache=True, parallel=False)
-def qual_weighted_var_sum(split_data, eval_data, min_samples_leaf, parent_mean, parent_var_sum, parent_num_samples, var_scale):
+@numba.jit(nopython=True, cache=True, parallel=True)
+def _vbsf_inner(split_data, eval_data, min_samples_leaf, parent_mean, parent_var_sum, parent_num_samples, var_scale):
     """
-    Identify and evaluate all valid splits of node along split_dim, incrementally calculating variance sums along eval_dims.
+    Identify and evaluate all valid splits of node along the dimensions of split_data, incrementally calculating variance sums within eval_data.
     Calculate split quality = sum of reduction in dimension-scaled variance sums and find the greedy split.
     """
     def increment_mean_and_var_sum(n, mean, var_sum, x, sign):
@@ -49,32 +47,38 @@ def qual_weighted_var_sum(split_data, eval_data, min_samples_leaf, parent_mean, 
         var_sum = var_sum + (sign * (d_last * d))
         return mean, np.maximum(var_sum, 0) # Clip at zero
 
-    # Apply two kinds of constraint to the split point:
-    #   (1) Must be a "threshold" point where the samples either side do not have equal values
-    valid_split_indices = np.where(split_data[1:] - split_data[:-1])[0] + 1 # NOTE: 0 will not be included
-    #   (2) Must obey min_samples_leaf
-    mask = np.logical_and(valid_split_indices >= min_samples_leaf, valid_split_indices <= parent_num_samples-min_samples_leaf)
-    valid_split_indices = valid_split_indices[mask]
-    # Cannot split on a dim if there are no valid split points
-    if len(valid_split_indices) == 0: return None, None, None, None
-    # greedy_gains.append(np.full(len(eval_dims), np.nan)) # NOTE: Not implemented
-    max_num_left = valid_split_indices[-1] + 1 # +1 needed
-    mean = np.zeros((2, max_num_left, eval_data.shape[1]))
-    var_sum = mean.copy()
-    mean[1,0] = parent_mean
-    var_sum[1,0] = parent_var_sum
-    for num_left in range(1, max_num_left): # Need to start at 1 for incremental calculation to work
-        num_right = parent_num_samples - num_left
-        x = eval_data[num_left-1]
-        mean[0,num_left], var_sum[0,num_left] = increment_mean_and_var_sum(num_left,  mean[0,num_left-1], var_sum[0,num_left-1], x, 1)
-        mean[1,num_left], var_sum[1,num_left] = increment_mean_and_var_sum(num_right, mean[1,num_left-1], var_sum[1,num_left-1], x, -1)                    
-    gains = var_sum[1,0] - var_sum[:,valid_split_indices,:].sum(axis=0)
-    qual = (gains * var_scale).sum(axis=1)
-    # Greedy split is the one with the highest quality
-    greedy = np.argmax(qual)
-    split_index = valid_split_indices[greedy]
-    qual_max = qual[greedy]
-    return valid_split_indices, qual, split_index, qual_max
+    num_split_dims = split_data.shape[1]
+    greedy_split_indices = np.full(num_split_dims, np.nan, dtype=np.int32)
+    greedy_quals = np.full(num_split_dims, np.nan)
+    # greedy_gains = [] # NOTE: Not implemented
+    for d in numba.prange(num_split_dims): # TODO: Faster to vectorise the entire process along d?
+        # Apply two kinds of constraint to the split points:
+        #   (1) Must be a "threshold" point where the samples either side do not have equal values
+        valid_split_indices = np.where(split_data[1:,d] - split_data[:-1,d])[0] + 1 # NOTE: 0 will not be included
+        #   (2) Must obey min_samples_leaf
+        mask = np.logical_and(valid_split_indices >= min_samples_leaf, valid_split_indices <= parent_num_samples-min_samples_leaf)
+        valid_split_indices = valid_split_indices[mask]
+        # Cannot split on a dim if there are no valid split points
+        if len(valid_split_indices) == 0: continue
+        # greedy_gains.append(np.full(len(eval_dims), np.nan)) # NOTE: Not implemented
+        max_num_left = valid_split_indices[-1] + 1 # +1 needed
+        mean = np.zeros((2, max_num_left, eval_data.shape[2]))
+        var_sum = mean.copy()
+        mean[1,0] = parent_mean
+        var_sum[1,0] = parent_var_sum
+        for num_left in range(1, max_num_left): # Need to start at 1 for incremental calculation to work
+            num_right = parent_num_samples - num_left
+            x = eval_data[num_left-1,d]
+            mean[0,num_left], var_sum[0,num_left] = increment_mean_and_var_sum(num_left,  mean[0,num_left-1], var_sum[0,num_left-1], x, 1)
+            mean[1,num_left], var_sum[1,num_left] = increment_mean_and_var_sum(num_right, mean[1,num_left-1], var_sum[1,num_left-1], x, -1)
+        gains = var_sum[1,0] - var_sum[:,valid_split_indices,:].sum(axis=0)
+        qual = (gains * var_scale).sum(axis=1)
+        # Greedy split is the one with the highest quality
+        greedy = np.argmax(qual)
+        greedy_split_indices[d] = valid_split_indices[greedy]
+        greedy_quals[d] = qual[greedy]
+        # greedy_gains.append(gains_this_dim[greedy]) # NOTE: Not implemented
+    return greedy_split_indices, greedy_quals
 
 # ===============================
 # OPERATIONS ON SORTED INDICES
