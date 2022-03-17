@@ -174,24 +174,23 @@ class Node:
         """
         Split along split_dim at a specified split_threshold or split_index.
         """
-        if split_threshold is not None:
+        # Split samples
+        if split_threshold is not None: # Threhold -> index
             if not(self.bb_max[split_dim][0] <= split_threshold <= self.bb_max[split_dim][1]): return False
-            self.split_dim, self.split_threshold = split_dim, split_threshold
-            # Split samples.
-            data = self.space.data[self.sorted_indices[:,self.split_dim], self.split_dim]
+            self.split_threshold = split_threshold
+            data = self.space.data[self.sorted_indices[:,split_dim],split_dim]
             split_index = bisect.bisect(data, self.split_threshold)
-            left, right = split_sorted_indices(self.sorted_indices, self.split_dim, split_index)
-        else:
-            self.split_dim = split_dim
-            left, right = split_sorted_indices(self.sorted_indices, self.split_dim, split_index)
+        left, right = split_sorted_indices(self.sorted_indices, split_dim, split_index)
+        if split_threshold is None: # Index -> threshold
             self.split_threshold = (self.space.data[left[-1,split_dim],split_dim] + self.space.data[right[0,split_dim],split_dim]) / 2
-        # Split bounding box.
+        self.split_dim = split_dim
+        # Split bounding box
         bb_max_left = self.bb_max.copy(); bb_max_left[self.split_dim,1] = self.split_threshold
         bb_max_right = self.bb_max.copy(); bb_max_right[self.split_dim,0] = self.split_threshold
-        # Make children.
+        # Make children
         self.left = Node(self.space, parent=self, sorted_indices=left, bb_max=bb_max_left)
         self.right = Node(self.space, parent=self, sorted_indices=right, bb_max=bb_max_right)
-        # Store gains.
+        # Store gains
         if gains is not None: self.gains["immediate"] = gains
         return True
 

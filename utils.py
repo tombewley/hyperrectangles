@@ -8,16 +8,17 @@ import numba
 
 def variance_based_split_finder(node, split_dims, eval_dims, min_samples_leaf, store_all_qual=False):
     """
-    Try splitting the node along several split_dims, measuring quality using eval_dims.
-    Return the best split from each dim.
+    Identify and evaluate all valid splits of node along the dimensions of split_data, incrementally calculating variance sums within eval_data.
+    Calculate split quality = sum of reduction in dimension-scaled variance sums and find the greedy split along each dim.
     """
+    # Gather attributes from the node
     parent_mean = node.mean[eval_dims]
     parent_var_sum = node.var_sum[eval_dims]
     parent_num_samples = node.num_samples
     var_scale = node.space.global_var_scale[eval_dims]
     split_data = node.space.data[node.sorted_indices[:,split_dims],split_dims]
     eval_data = node.space.data[node.sorted_indices[:,split_dims][:,:,None],eval_dims]
-    # Jitted inner function
+    # Call jitted inner function
     split_indices, quals = _vbsf_inner(split_data, eval_data, min_samples_leaf, parent_mean, parent_var_sum, parent_num_samples, var_scale)
     splits = []
     for split_dim, split_index, qual in zip(split_dims, split_indices, quals):
@@ -33,8 +34,7 @@ def variance_based_split_finder(node, split_dims, eval_dims, min_samples_leaf, s
 @numba.jit(nopython=True, cache=True, parallel=True)
 def _vbsf_inner(split_data, eval_data, min_samples_leaf, parent_mean, parent_var_sum, parent_num_samples, var_scale):
     """
-    Identify and evaluate all valid splits of node along the dimensions of split_data, incrementally calculating variance sums within eval_data.
-    Calculate split quality = sum of reduction in dimension-scaled variance sums and find the greedy split.
+    Jitted inner function for variance_based_split_finder.
     """
     def increment_mean_and_var_sum(n, mean, var_sum, x, sign):
         """
@@ -96,6 +96,26 @@ def split_sorted_indices(sorted_indices, split_dim, split_index):
         left[other_dim] = sorted_indices[put_left, other_dim]
         right[other_dim] = sorted_indices[np.logical_not(put_left), other_dim]
     return np.array(left).T, np.array(right).T
+
+# NOTE: Not working; getting an int32/int64 error
+@numba.jit(nopython=True, cache=True, parallel=True) # Python needed for set
+# def split_sorted_indices(sorted_indices, split_dim, split_index):
+#     """
+#     Split a sorted_indices array at a point along one dimension, preserving the order along all.
+#     """
+#     num_samples = sorted_indices.shape[0]
+#     num_dims = sorted_indices.shape[1]
+#     left = np.empty((split_index, num_dims), dtype=sorted_indices.dtype)
+#     right = np.empty((num_samples-split_index, num_dims), dtype=sorted_indices.dtype)
+#     left[:,split_dim], right[:,split_dim] = np.split(sorted_indices[:,split_dim], [split_index])
+#     left_indices = set(left[:,split_dim])
+#     for d in numba.prange(num_dims):
+#         if d == split_dim: continue
+#         left_mask = np.full(num_samples, False)
+#         for i in numba.prange(num_samples):
+#             if sorted_indices[i,d] in left_indices: left_mask[i] = True
+#         left[:,d], right[:,d] = sorted_indices[left_mask,d], sorted_indices[~left_mask,d]
+#     return left, right
 
 def bb_filter_sorted_indices(space, sorted_indices, bb):
     """
