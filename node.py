@@ -175,7 +175,7 @@ class Node:
         Split along split_dim at a specified split_threshold or split_index.
         """
         # Split samples
-        if split_threshold is not None: # Threhold -> index
+        if split_threshold is not None: # Threshold -> index
             if not(self.bb_max[split_dim][0] <= split_threshold <= self.bb_max[split_dim][1]): return False
             self.split_threshold = split_threshold
             data = self.space.data[self.sorted_indices[:,split_dim],split_dim]
