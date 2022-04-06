@@ -81,6 +81,25 @@ class Tree(Model):
                     return left | right | ({node} if path else {})
         return _recurse(self.root)
 
+    def get_leaf_nums(self, X):
+        """
+        Accelerated method for propagating a multidimensional array of samples
+        through the model and getting the unique leaf num for each.
+        """
+        shape = X.shape; assert shape[-1] == len(self.space)
+        X_flat = X.reshape(-1, shape[-1]) # First flatten along all but the final dimension.
+        leaf_nums = np.full(shape[:-1], -1)
+        def _recurse(node, indices):
+            if node.split_dim is None:
+                # At a leaf, store the leaf num for all remaining indices.
+                leaf_nums[np.unravel_index(indices, shape[:-1])] = self.leaves.index(node)
+            else:
+                # At an internal node, split the indices based on the split threshold.
+                left = X_flat[indices, node.split_dim] < node.split_threshold
+                _recurse(node.left, indices[left]); _recurse(node.right, indices[~left])
+        _recurse(self.root, np.arange(len(X_flat)))
+        return leaf_nums
+
     def _queue_to_cache(self, min_samples_leaf, store_all_qual=False):
         """
         Find the greedy split for the first leaf in the split queue and add to the split cache.
