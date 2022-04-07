@@ -84,12 +84,13 @@ class Tree(Model):
     def get_leaf_nums(self, X):
         """
         Accelerated method for propagating a multidimensional array of samples
-        through the model and getting the unique leaf num for each.
+        through the tree and getting the unique leaf num for each.
         """
-        shape = X.shape; assert shape[-1] == len(self.space)
-        X_flat = X.reshape(-1, shape[-1]) # First flatten along all but the final dimension.
+        # First flatten along all but the final dimension to ease indexing.
+        shape = X.shape; X_flat = X.reshape(-1, shape[-1])
         leaf_nums = np.full(shape[:-1], -1)
         def _recurse(node, indices):
+            if len(indices) == 0: return
             if node.split_dim is None:
                 # At a leaf, store the leaf num for all remaining indices.
                 leaf_nums[np.unravel_index(indices, shape[:-1])] = self.leaves.index(node)
