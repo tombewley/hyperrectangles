@@ -32,7 +32,7 @@ class Tree(Model):
         Then recompute the split queue.
         """
         assert self.space.data.shape[0], "Space must have data."
-        if sorted_indices is "all": sorted_indices = self.space.all_sorted_indices
+        if sorted_indices == "all": sorted_indices = self.space.all_sorted_indices
         def _recurse(node, si):
             node.populate(si, keep_bb_min)
             if node.split_dim is None: return
