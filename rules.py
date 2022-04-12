@@ -77,7 +77,7 @@ def diagram(tree, pred_dims=None, sf=3, verbose=False, decision_node_colour="gra
     if size is not None: graph.set_size(f"{size[0]},{size[1]}!")
     if out_as == "png":   graph.write_png(f"{out_name if out_name is not None else tree.name}.png") 
     elif out_as == "svg": graph.write_svg(f"{out_name if out_name is not None else tree.name}.svg") 
-    elif out_as == "img": # https://stackoverflow.com/a/18522941
+    elif out_as == "plt": # https://stackoverflow.com/a/18522941
         png_str = graph.create_png()
         sio = io.BytesIO()
         sio.write(png_str)
