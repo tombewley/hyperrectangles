@@ -21,8 +21,8 @@ def variance_based_split_finder(node, split_dims, eval_dims, min_samples_leaf, s
     all_qual, split_indices = _vbsf_inner(split_data, eval_data, min_samples_leaf, parent_mean, parent_var_sum, var_scale)
     splits = []
     for split_dim, split_index in zip(split_dims, split_indices):
-        qual = all_qual[split_index,split_dim]
-        if not np.isnan(qual): splits.append((split_dim, split_index, qual))
+        if split_index >= 0: # NOTE: Default is -1 if no valid_split_indices
+            splits.append((split_dim, split_index, all_qual[split_index,split_dim]))
     # If applicable, store all split thresholds and quality values
     if store_all_qual:
         node.all_split_thresholds, node.all_qual = {}, {}
@@ -49,7 +49,7 @@ def _vbsf_inner(split_data, eval_data, min_samples_leaf, parent_mean, parent_var
 
     num_samples, num_split_dims = split_data.shape
     all_qual = np.full_like(split_data, np.nan)
-    greedy_split_indices = np.full(num_split_dims, np.nan, dtype=np.int32)
+    greedy_split_indices = np.full(num_split_dims, -1, dtype=np.int32)
     # greedy_gains = [] # NOTE: Not implemented
     for d in numba.prange(num_split_dims): # TODO: Faster to vectorise the entire process along d?
         # Apply two kinds of constraint to the split points:
