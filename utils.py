@@ -14,25 +14,25 @@ def variance_based_split_finder(node, split_dims, eval_dims, min_samples_leaf, s
     # Gather attributes from the node
     parent_mean = node.mean[eval_dims]
     parent_var_sum = node.var_sum[eval_dims]
-    parent_num_samples = node.num_samples
     var_scale = node.space.global_var_scale[eval_dims]
     split_data = node.space.data[node.sorted_indices[:,split_dims],split_dims]
     eval_data = node.space.data[node.sorted_indices[:,split_dims][:,:,None],eval_dims]
     # Call jitted inner function
-    split_indices, quals = _vbsf_inner(split_data, eval_data, min_samples_leaf, parent_mean, parent_var_sum, parent_num_samples, var_scale)
+    all_qual, split_indices = _vbsf_inner(split_data, eval_data, min_samples_leaf, parent_mean, parent_var_sum, var_scale)
     splits = []
-    for split_dim, split_index, qual in zip(split_dims, split_indices, quals):
+    for split_dim, split_index in zip(split_dims, split_indices):
+        qual = all_qual[split_index,split_dim]
         if not np.isnan(qual): splits.append((split_dim, split_index, qual))
     # If applicable, store all split thresholds and quality values
     if store_all_qual:
-        raise NotImplementedError()
         node.all_split_thresholds, node.all_qual = {}, {}
-        node.all_split_thresholds[split_dims[d]] = (split_data[valid_split_indices-1,d] + split_data[valid_split_indices,d]) / 2
-        node.all_qual[split_dims[d]] = qual
+        for d in range(len(split_dims)):
+            node.all_split_thresholds[split_dims[d]] = (split_data[:-1,d] + split_data[1:,d]) / 2
+            node.all_qual[split_dims[d]] = all_qual[1:,d]
     return splits, np.array([]) # NOTE: Greedy gains not implemented
 
 @numba.jit(nopython=True, cache=True, parallel=True)
-def _vbsf_inner(split_data, eval_data, min_samples_leaf, parent_mean, parent_var_sum, parent_num_samples, var_scale):
+def _vbsf_inner(split_data, eval_data, min_samples_leaf, parent_mean, parent_var_sum, var_scale):
     """
     Jitted inner function for variance_based_split_finder.
     """
@@ -47,16 +47,16 @@ def _vbsf_inner(split_data, eval_data, min_samples_leaf, parent_mean, parent_var
         var_sum = var_sum + (sign * (d_last * d))
         return mean, np.maximum(var_sum, 0) # Clip at zero
 
-    num_split_dims = split_data.shape[1]
+    num_samples, num_split_dims = split_data.shape
+    all_qual = np.full_like(split_data, np.nan)
     greedy_split_indices = np.full(num_split_dims, np.nan, dtype=np.int32)
-    greedy_quals = np.full(num_split_dims, np.nan)
     # greedy_gains = [] # NOTE: Not implemented
     for d in numba.prange(num_split_dims): # TODO: Faster to vectorise the entire process along d?
         # Apply two kinds of constraint to the split points:
         #   (1) Must be a "threshold" point where the samples either side do not have equal values
         valid_split_indices = np.where(split_data[1:,d] - split_data[:-1,d])[0] + 1 # NOTE: 0 will not be included
         #   (2) Must obey min_samples_leaf
-        mask = np.logical_and(valid_split_indices >= min_samples_leaf, valid_split_indices <= parent_num_samples-min_samples_leaf)
+        mask = np.logical_and(valid_split_indices >= min_samples_leaf, valid_split_indices <= num_samples-min_samples_leaf)
         valid_split_indices = valid_split_indices[mask]
         # Cannot split on a dim if there are no valid split points
         if len(valid_split_indices) == 0: continue
@@ -67,18 +67,17 @@ def _vbsf_inner(split_data, eval_data, min_samples_leaf, parent_mean, parent_var
         mean[1,0] = parent_mean
         var_sum[1,0] = parent_var_sum
         for num_left in range(1, max_num_left): # Need to start at 1 for incremental calculation to work
-            num_right = parent_num_samples - num_left
+            num_right = num_samples - num_left
             x = eval_data[num_left-1,d]
             mean[0,num_left], var_sum[0,num_left] = increment_mean_and_var_sum(num_left,  mean[0,num_left-1], var_sum[0,num_left-1], x, 1)
             mean[1,num_left], var_sum[1,num_left] = increment_mean_and_var_sum(num_right, mean[1,num_left-1], var_sum[1,num_left-1], x, -1)
         gains = var_sum[1,0] - var_sum[:,valid_split_indices,:].sum(axis=0)
-        qual = (gains * var_scale).sum(axis=1)
+        all_qual[valid_split_indices,d] = (gains * var_scale).sum(axis=1)
         # Greedy split is the one with the highest quality
-        greedy = np.argmax(qual)
+        greedy = np.argmax(all_qual[valid_split_indices,d])
         greedy_split_indices[d] = valid_split_indices[greedy]
-        greedy_quals[d] = qual[greedy]
         # greedy_gains.append(gains_this_dim[greedy]) # NOTE: Not implemented
-    return greedy_split_indices, greedy_quals
+    return all_qual, greedy_split_indices
 
 # ===============================
 # OPERATIONS ON SORTED INDICES
