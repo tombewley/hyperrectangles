@@ -78,11 +78,12 @@ class Model:
         assert X.shape[1] == len(self.space), "Must match dimensionality of space."
         return np.linalg.norm(self.predict(X, dims, mode) - X[:,dims], axis=0, ord=ord) / X.shape[0]
 
-    def counterfactual(self, x, foil, delta_dims, fixed_dims=[],
+    def counterfactual(self, x, foil, delta_dims, fixed_dims=None,
                        access_mode='min', sort_by='L0_L2', return_all=False):
         """
         Return a list of minimal counterfactuals from x given foil, sorted by the provided method.
         """
+        if fixed_dims is None: fixed_dims = []
         delta_dims, fixed_dims = self.space.idxify(delta_dims, fixed_dims)
         foil = self.space.listify(foil) 
         # Marginalise out all non-fixed dims in x.

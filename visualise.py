@@ -100,7 +100,7 @@ def show_leaf_numbers(model, vis_dims, ax=None, fontsize=6):
     return ax
 
 def show_rectangles(model, vis_dims=None, attribute=None, 
-                    slice_dict={}, max_depth=np.inf, maximise=False, project_resolution=None,
+                    slice_dict=None, max_depth=np.inf, maximise=False, project_resolution=None,
                     vis_lims=None, cmap_lims=None, fill_colour=None, edge_colour=None, ax=None, cbar=True):
     """
     Compute the rectangular projections of nodes from model onto vis_dims, and colour according to attribute.
@@ -115,6 +115,7 @@ def show_rectangles(model, vis_dims=None, attribute=None,
     # Set up axes.
     ax = _ax_setup(ax, model, vis_dims, attribute=attribute, slice_dict=slice_dict)
     # Collect the list of nodes to show.
+    if slice_dict is None: slice_dict = {}
     if slice_dict != {}: slice_list = model.space.listify(slice_dict)
     else: slice_list = slice_dict
     nodes = list(model.propagate(slice_list, mode=('max' if maximise else 'min'), max_depth=max_depth))        
@@ -261,7 +262,7 @@ def show_shap_dependence(tree, node, wrt_dim, shap_dim, vis_dim=None, deint_dim=
     ax.scatter(d[:,0], d[:,1], s=0.05, alpha=alpha, c=colours)
     return ax
 
-def _ax_setup(ax, model, vis_dims, attribute=None, diff=False, tree_b=None, derivs=False, slice_dict={}):
+def _ax_setup(ax, model, vis_dims, attribute=None, diff=False, tree_b=None, derivs=False, slice_dict=None):
     if ax is None: _, ax = plt.subplots(figsize=(12,8))#(3,12/5))
     ax.set_xlabel(model.space.dim_names[vis_dims[0]])
     if len(vis_dims) == 1: ax.set_yticks([])
@@ -270,7 +271,7 @@ def _ax_setup(ax, model, vis_dims, attribute=None, diff=False, tree_b=None, deri
     if diff: title += f' vs {tree_b.name}\n$\Delta$ in {attribute[0]} of {attribute[1]}'
     elif attribute: title += f'\n{attribute[0]} of {attribute[1]}'
     elif derivs: title += '\nTime derivatives'
-    if slice_dict != {}: title += '\nSlice at '+', '.join([f'{d} = {v}' for d, v in slice_dict.items()])
+    if slice_dict is not None: title += '\nSlice at '+', '.join([f'{d} = {v}' for d, v in slice_dict.items()])
     ax.set_title(title)
     return ax
 

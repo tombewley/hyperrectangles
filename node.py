@@ -8,14 +8,14 @@ class Node:
     Class for a node, which is characterised by its samples (sorted_indices of data from space), 
     mean, covariance matrix and minimal and maximal bounding boxes. 
     """
-    def __init__(self, space, parent=None, sorted_indices=None, bb_min=None, bb_max=None, meta={}):
+    def __init__(self, space, parent=None, sorted_indices=None, bb_min=None, bb_max=None, meta=None):
         self.space, self.parent = space, parent # "Back-link" to the space and parent node.
         self.bb_max = np.array(bb_max if bb_max is not None else # If a maximal bounding box has been provided, use that.
                       [[-np.inf, np.inf] for _ in self.space.dim_names]) # Otherwise, bb_max is infinite.
         # These attributes are defined if and when the node is split.
         self.split_dim, self.split_threshold, self.left, self.right, self.gains = None, None, None, None, {} 
         # This dictionary can be used to store miscellaneous meta information about this node.
-        self.meta = meta
+        self.meta = {} if meta is None else meta
         # Populate with samples if provided.
         self.populate(sorted_indices, keep_bb_min=False)
         # Overwrite minimal bounding box if provided.
