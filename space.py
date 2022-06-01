@@ -62,32 +62,6 @@ class Space:
         self.models[name] = Tree(name, root, split_dims, eval_dims)
         return self.models[name]
 
-    # def tree_best_first_old(self, name, split_dims, eval_dims, sorted_indices=None, 
-    #                     max_num_leaves=np.inf, min_samples_leaf=1): 
-    #     """
-    #     Grow a tree best-first to max_num_leaves using samples specified by sorted_indices. 
-    #     """
-    #     split_dims, eval_dims, sorted_indices = self._preflight_check(split_dims, eval_dims, sorted_indices)
-    #     with tqdm(total=max_num_leaves) as pbar:
-    #         root = Node(self, sorted_indices=sorted_indices) 
-    #         priority = np.dot(root.var_sum[eval_dims], self.global_var_scale[eval_dims])
-    #         queue = [(root, priority)]
-    #         pbar.update(1); num_leaves = 1
-    #         while num_leaves < max_num_leaves and len(queue) > 0:
-    #             queue.sort(key=lambda x: x[1], reverse=True)
-    #             # Try to split the highest-priority leaf.
-    #             node, _ = queue.pop(0) 
-    #             ok = node._do_greedy_split(split_dims, eval_dims, min_samples_leaf)
-    #             if ok:    
-    #                 pbar.update(1); num_leaves += 1
-    #                 # If split made, add the two new leaves to the queue.
-    #                 queue += [(node.left,
-    #                            np.dot(node.left.var_sum[eval_dims], self.global_var_scale[eval_dims])),
-    #                           (node.right,
-    #                            np.dot(node.right.var_sum[eval_dims], self.global_var_scale[eval_dims]))]
-    #     self.models[name] = Tree(name, root, split_dims, eval_dims)
-    #     return self.models[name]
-
     def tree_best_first(self, name, split_dims, eval_dims, sorted_indices=None, 
                         max_num_leaves=np.inf, min_samples_leaf=1, num_from_queue=np.inf, disable_pbar=False): 
         """
@@ -116,7 +90,7 @@ class Space:
             leaves.append(Node(self, bb_min=bb_min, bb_max=bb_max, meta=node["meta"]))
         self.models[name] = Model(name, leaves)
         return self.models[name]
-    
+
     def tree_from_dict(self, name, d, redim=None): 
         """
         Create a tree from a dictionary object d. 
@@ -138,7 +112,7 @@ class Space:
     def tree_from_func(self, name, func):
         """
         Create a tree from a well-formed nested if-then function in Python.
-        Tests must use the < operator; split_dims can either be identified with indices, e.g. x[0],
+        Tests must use the < or >= operators; split_dims can either be identified with indices, e.g. x[0],
         or with a valid entry in self.dim_names.
         """
         from dill.source import getsource
@@ -152,12 +126,16 @@ class Space:
                 try: split_dim = int(d.split("[")[1][:-1]) # If index specified.
                 except: split_dim = self.dim_names.index(d) # If dim_name specified.
                 split_dims.add(split_dim)
-                if not node._do_manual_split(split_dim, split_threshold=float(t)):
+                if not node._do_split(split_dim, split_threshold=float(t)):
                     raise ValueError(f"Invalid split threshold at line {n}: \"{lines[n]}\".")
                 n = _recurse(node.left if o == "<" else node.right, n + 1)
                 assert lines[n] == "else:"
                 n = _recurse(node.right if o == "<" else node.left, n + 1)
-            elif lines[n][:6] == "return": n += 1 # NOTE: Not doing anything with returns.
+            elif lines[n][:6] == "return":
+                # NOTE: Float-convertible return values are stored in node.meta["return"].
+                try:    node.meta["return"] = float(lines[n][6:])
+                except: node.meta["return"] = None
+                n += 1
             else: raise ValueError(f"Parse error at line {n}: \"{lines[n]}\".")
             return n
         split_dims, eval_dims = set(), [] # NOTE: No eval dims.
