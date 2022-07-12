@@ -6,28 +6,28 @@ from sklearn.decomposition import PCA
 class Node:
     """
     Class for a node, which is characterised by its samples (sorted_indices of data from space), 
-    mean, covariance matrix and minimal and maximal bounding boxes. 
+    mean, covariance matrix and minimal and maximal hyperrectangles.
     """
-    def __init__(self, space, parent=None, sorted_indices=None, bb_min=None, bb_max=None, meta=None):
+    def __init__(self, space, parent=None, sorted_indices=None, hr_min=None, hr_max=None, meta=None):
         self.space, self.parent = space, parent # "Back-link" to the space and parent node.
-        self.bb_max = np.array(bb_max if bb_max is not None else # If a maximal bounding box has been provided, use that.
-                      [[-np.inf, np.inf] for _ in self.space.dim_names]) # Otherwise, bb_max is infinite.
+        self.hr_max = np.array(hr_max if hr_max is not None else # If a maximal hyperrectangle has been provided, use that.
+                      [[-np.inf, np.inf] for _ in self.space.dim_names]) # Otherwise, hr_max is infinite.
         # These attributes are defined if and when the node is split.
         self.split_dim, self.split_threshold, self.left, self.right, self.gains = None, None, None, None, {} 
         # This dictionary can be used to store miscellaneous meta information about this node.
         self.meta = {} if meta is None else meta
         # Populate with samples if provided.
-        self.populate(sorted_indices, keep_bb_min=False)
-        # Overwrite minimal bounding box if provided.
-        if bb_min: self.bb_min = np.array(bb_min)
-        assert self.bb_min.shape == self.bb_max.shape == (len(self.space), 2)
+        self.populate(sorted_indices, keep_hr_min=False)
+        # Overwrite minimal hyperrectangle if provided.
+        if hr_min: self.hr_min = np.array(hr_min)
+        assert self.hr_min.shape == self.hr_max.shape == (len(self.space), 2)
 
     # Dunder/magic methods.
     def __repr__(self): return f"Node at {hex(id(self))} with {self.num_samples} samples"
     def __call__(self, *args, **kwargs): return self.membership(*args, **kwargs)
     def __len__(self): return len(self.sorted_indices)
     def __getitem__(self, key): 
-        try: return self.__getattribute__(key) # For declared attributes (e.g. self.bb_max).
+        try: return self.__getattribute__(key) # For declared attributes (e.g. self.hr_max).
         except:
             if type(key) == tuple: 
                 try: return self.stat(key) # For statistical attributes.
@@ -42,7 +42,7 @@ class Node:
         else: dims = None; num_dims = len(self.space)
         return self.space.data[self.sorted_indices[:,0][:,None], self.space.idxify(dims)].reshape(-1,num_dims)
     
-    def populate(self, sorted_indices, keep_bb_min):
+    def populate(self, sorted_indices, keep_hr_min):
         """
         Populate the node with samples and compute statistics.
         """
@@ -52,13 +52,13 @@ class Node:
         if self.num_samples > 0: 
             X = self.data() # Won't actually store this; order doesn't matter.
             self.mean = np.mean(X, axis=0)
-            # Minimal bounding box is defined by the samples.
-            if not keep_bb_min: self.bb_min = np.array([np.min(X, axis=0), np.max(X, axis=0)]).T
+            # Minimal hyperrectangle is defined by the samples.
+            if not keep_hr_min: self.hr_min = np.array([np.min(X, axis=0), np.max(X, axis=0)]).T
             if self.num_samples > 1:
                 self.cov = np.cov(X, rowvar=False, ddof=0) # ddof=0 overrides bias correction.                
         else: 
             self.mean = np.full(num_dims, np.nan)
-            if not keep_bb_min: self.bb_min = np.full((num_dims, 2), np.nan)
+            if not keep_hr_min: self.hr_min = np.full((num_dims, 2), np.nan)
         try: self.cov
         except: self.cov = np.zeros((num_dims, num_dims))
         self.cov_sum = self.cov * self.num_samples
@@ -71,7 +71,7 @@ class Node:
         """
         per_dim = []
         assert len(x) == len(self.space)
-        for xd, lims_min, lims_max, mean in zip(x, self.bb_min, self.bb_max, self.mean):
+        for xd, lims_min, lims_max, mean in zip(x, self.hr_min, self.hr_max, self.mean):
             try:
                 # For marginalised (None <=> (-inf, inf) interval).
                 if xd is None or np.isnan(xd): 
@@ -79,26 +79,26 @@ class Node:
                 # For scalar.
                 elif mode == "mean": # Equal to mean.
                     if not xd == mean: return 0 
-                elif mode in ("min", "max"): # Inside bounding box.
+                elif mode in ("min", "max"): # Inside hyperrectangle.
                     lims = (lims_min if mode == "min" else lims_max)
                     if not(xd >= lims[0] and xd <= lims[1]): return 0
-                elif mode == "fuzzy": # Fuzzy membership using both bounding boxes.
+                elif mode == "fuzzy": # Fuzzy membership using both hyperrectangles.
                     to_max_l = xd - lims_max[0]
                     to_max_u = xd - lims_max[1]
-                    # Outside bb_max.
+                    # Outside hr_max.
                     if not(to_max_l >= 0 and to_max_u <= 0): return 0. 
                     else:
                         to_min_l = xd - lims_min[0]
                         above_min_l = (to_min_l >= 0)
                         to_min_u = xd - lims_min[1]
                         below_min_u = (to_min_u <= 0)
-                        # Inside bb_min.
+                        # Inside hr_min.
                         if (above_min_l and below_min_u): per_dim.append(1.)
                         # Otherwise (partial membership).
                         else: 
-                            # Below lower of bb_min.
+                            # Below lower of hr_min.
                             if not(above_min_l): per_dim.append(to_max_l / (to_max_l - to_min_l))
-                            # Above upper of bb_min.
+                            # Above upper of hr_min.
                             else: per_dim.append(to_max_u / (to_max_u - to_min_u))
                 else: raise ValueError()
             except:
@@ -106,7 +106,7 @@ class Node:
                 if mode == "fuzzy": raise NotImplementedError("Cannot handle intervals in fuzzy mode.")
                 elif mode == "mean": # Contains mean.
                     if not (xd[0] <= mean <= xd[1]): return 0 
-                elif mode in ("min", "max"): # Intersected/contained by bounding box.
+                elif mode in ("min", "max"): # Intersected/contained by hyperrectangle.
                     lims = (lims_min if mode == "min" else lims_max)
                     compare = [[i >= l for i in xd] for l in lims]
                     if contain:
@@ -164,8 +164,8 @@ class Node:
         d = {}
         for attr in attributes: 
             d[attr] = self[attr] # Make use of __getitem__
-            if clip is not None and attr == "bb_max": 
-                d[attr] = bb_clip(d[attr], clip) # Clip bb_max to avoid infinite values
+            if clip is not None and attr == "hr_max":
+                d[attr] = hr_clip(d[attr], clip) # Clip hr_max to avoid infinite values
             try: d[attr] = d[attr].tolist() # Convert NumPy arrays to lists
             except: pass
         return d
@@ -176,7 +176,7 @@ class Node:
         """
         # Split samples
         if split_threshold is not None: # Threshold -> index
-            if not(self.bb_max[split_dim][0] <= split_threshold <= self.bb_max[split_dim][1]): return False
+            if not(self.hr_max[split_dim][0] <= split_threshold <= self.hr_max[split_dim][1]): return False
             self.split_threshold = split_threshold
             data = self.space.data[self.sorted_indices[:,split_dim],split_dim]
             split_index = bisect.bisect(data, self.split_threshold)
@@ -184,12 +184,12 @@ class Node:
         if split_threshold is None: # Index -> threshold
             self.split_threshold = (self.space.data[left[-1,split_dim],split_dim] + self.space.data[right[0,split_dim],split_dim]) / 2
         self.split_dim = split_dim
-        # Split bounding box
-        bb_max_left = self.bb_max.copy(); bb_max_left[self.split_dim,1] = self.split_threshold
-        bb_max_right = self.bb_max.copy(); bb_max_right[self.split_dim,0] = self.split_threshold
+        # Split hyperrectangle
+        hr_max_left = self.hr_max.copy(); hr_max_left[self.split_dim,1] = self.split_threshold
+        hr_max_right = self.hr_max.copy(); hr_max_right[self.split_dim,0] = self.split_threshold
         # Make children
-        self.left = Node(self.space, parent=self, sorted_indices=left, bb_max=bb_max_left)
-        self.right = Node(self.space, parent=self, sorted_indices=right, bb_max=bb_max_right)
+        self.left = Node(self.space, parent=self, sorted_indices=left, hr_max=hr_max_left)
+        self.right = Node(self.space, parent=self, sorted_indices=right, hr_max=hr_max_right)
         # Store gains
         if gains is not None: self.gains["immediate"] = gains
         return True

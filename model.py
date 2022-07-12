@@ -19,18 +19,18 @@ class Model:
     def __call__(self, *args, **kwargs): return self.propagate(*args, **kwargs)
     def __len__(self): return len(self.leaves)
 
-    def populate(self, sorted_indices="all", keep_bb_min=False):
+    def populate(self, sorted_indices="all", keep_hr_min=False):
         """
         Populate all leaves in the model with data from a sorted_indices array.
         """
         assert self.space.data.shape[0], "Space must have data."
         if sorted_indices is "all": sorted_indices = self.space.all_sorted_indices
         for leaf in self.leaves:
-            leaf.populate(bb_filter_sorted_indices(self.space, sorted_indices, leaf.bb_max),
-                          keep_bb_min=keep_bb_min)
+            leaf.populate(hr_filter_sorted_indices(self.space, sorted_indices, leaf.hr_max),
+                          keep_hr_min=keep_hr_min)
         return self
 
-    def depopulate(self, keep_bb_min=False): return self.populate(None, keep_bb_min=keep_bb_min) 
+    def depopulate(self, keep_hr_min=False): return self.populate(None, keep_hr_min=keep_hr_min)
 
     def gather(self, *args, **kwargs): return gather(self.leaves, *args, **kwargs)
     
@@ -97,7 +97,7 @@ class Model:
         scale = np.sqrt(self.space.global_var_scale[delta_dims]) # NOTE: normalise by global standard deviation.
         for leaf in leaves_accessible & leaves_foil:
             # Find the closest point in each.
-            x_closest = closest_point_in_bb(x, leaf.bb_min if access_mode=='min' else leaf.bb_max)
+            x_closest = closest_point_in_hr(x, leaf.hr_min if access_mode=='min' else leaf.hr_max)
             # Compute the L0 and L2 norms. 
             delta = (x_closest - x)[delta_dims] * scale
             l0, l2 = np.linalg.norm(delta, ord=0), np.linalg.norm(delta, ord=2)

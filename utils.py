@@ -116,12 +116,12 @@ def split_sorted_indices(sorted_indices, split_dim, split_index):
 #         left[:,d], right[:,d] = sorted_indices[left_mask,d], sorted_indices[~left_mask,d]
 #     return left, right
 
-def bb_filter_sorted_indices(space, sorted_indices, bb):
+def hr_filter_sorted_indices(space, sorted_indices, hr):
     """
-    Making use of the split_sorted_indices function, filter sorted_indices using a bb.
-    Allow bb to be specified as a dict.
+    Making use of the split_sorted_indices function, filter sorted_indices using a hr.
+    Allow hr to be specified as a dict.
     """
-    for split_dim, lims in enumerate(space.listify(bb)):
+    for split_dim, lims in enumerate(space.listify(hr)):
         if lims is None: continue # If nothing specified for this lim.
         for lu, lim in enumerate(lims):
             if np.isfinite(lim):
@@ -175,42 +175,46 @@ def group_along_dim(space, dim):
 # ===============================
 # OPERATIONS ON BOUNDING BOXES
 
-def bb_intersect(bb_a, bb_b):
+def hr_intersect(hr_a, hr_b):
     """
-    Find intersection between two bounding boxes.
+    Find intersection between two hyperrectangles.
     """
-    l = np.maximum(bb_a[:,0], bb_b[:,0])
-    u = np.minimum(bb_a[:,1], bb_b[:,1]) 
+    l = np.maximum(hr_a[:,0], hr_b[:,0])
+    u = np.minimum(hr_a[:,1], hr_b[:,1])
     if np.any(u-l < 0): return None # Return None if no overlap.
     return np.array([l, u]).T
 
-def bb_clip(bb, clip):
     """
-    Clip a bounding box using another.
+    Find minimum axis-aligned bounding box of two hyperrectangles.
     """
-    bb[:,0] = np.clip(bb[:,0], clip[:,0], clip[:,1])
-    bb[:,1] = np.clip(bb[:,1], clip[:,0], clip[:,1])
-    return bb
 
-def closest_point_in_bb(x, bb):
+def hr_clip(hr, clip):
     """
-    Given a point x and hyperectangular bounding box bb, find the point
-    inside bb that is closest to x. This is the same point for all p-norms.
+    Clip a hyperrectangle using another.
     """
-    return np.array([bbd[0] if bbd[0] > xd else (
-                     bbd[1] if bbd[1] < xd else (
-                     xd)) for xd, bbd in zip(x, bb)]) 
+    hr[:,0] = np.clip(hr[:,0], clip[:,0], clip[:,1])
+    hr[:,1] = np.clip(hr[:,1], clip[:,0], clip[:,1])
+    return hr
+
+def closest_point_in_hr(x, hr):
+    """
+    Given a point x and hyperectangular hyperrectangle hr, find the point
+    inside hr that is closest to x. This is the same point for all p-norms.
+    """
+    return np.array([hrd[0] if hrd[0] > xd else (
+                     hrd[1] if hrd[1] < xd else (
+                     xd)) for xd, hrd in zip(x, hr)])
 
 def project(nodes, dims, maximise=False, resolution=None):
     """
-    Project a list of nodes onto dims and list all the regions of intersection.
+    Project a list of nodes onto dims and list all the hyperrectangular intersections.
     """
     dims = nodes[0].space.idxify(dims)
     # List all the unique thresholds along each dim.
     thresholds = [{} for _ in dims]    
     for node in nodes:
         for i, d in enumerate(dims): 
-            for t, open_or_close in zip(node.bb_max[d] if maximise else node.bb_min[d], (0,1)):
+            for t, open_or_close in zip(node.hr_max[d] if maximise else node.hr_min[d], (0,1)):
                 # Store whether the node is "opened" or "closed" at this threshold.
                 if t not in thresholds[i]: thresholds[i][t] = [set(), set()]
                 thresholds[i][t][open_or_close].add(node)
@@ -236,24 +240,24 @@ def project(nodes, dims, maximise=False, resolution=None):
                 t_filtered.append((t_idx, [set(), unallocated_close]))
             thresholds[i] = t_filtered
             print(i, len(t),'->',len(t_filtered))
-    # Iterate through all Cartesian products of intervals (bounding boxes), 
-    # keeping track of the "open" nodes in each bounding box.
+    # Iterate through all the hyperrectangular tiling induced by the thresholds,
+    # keeping track of the "open" nodes along each dimension.
     open_nodes, projections = [set() for _ in dims], []    
     for indices in product(*[range(len(t)) for t in thresholds]):
-        bb = []
+        hr = []
         for i, (idx, t) in enumerate(zip(indices, thresholds)):
             # Update the set of open nodes along this dim.
             new_open, new_close = t[idx][1]
             open_nodes[i] = (open_nodes[i] | new_open) - new_close
-            # Limits of bounding box along this dim.
-            try: bb.append([t[idx][0],t[idx+1][0]]) 
-            except: bb = None; break # This is triggered when idx is the max for this dim.
-        if bb is not None:
-            bb = np.array(bb)
+            # Limits of hyperrectangle along this dim.
+            try: hr.append([t[idx][0],t[idx+1][0]])
+            except: hr = None; break # This is triggered when idx is the max for this dim.
+        if hr is not None:
+            hr = np.array(hr)
             # The overlapping nodes are those that are open along all dims.
             overlapping_nodes = set.intersection(*open_nodes)
             # Only store if there are a nonzero number of overlapping nodes.
-            if len(overlapping_nodes) > 0: projections.append([bb, overlapping_nodes])
+            if len(overlapping_nodes) > 0: projections.append([hr, overlapping_nodes])
     # print('Projection complete')
     return projections
     
@@ -284,27 +288,27 @@ def gather(nodes, *attributes, transpose=False):
     if transpose: return list(zip(*results))
     return results
 
-def weighted_average(nodes, dims, bb=None, intersect_dims=None):
+def weighted_average(nodes, dims, hr=None, intersect_dims=None):
     """
     Average of means from several nodes along dims, weighted by population.
-    If a bb is specified, additionally weight by overlap ratio along dims (using node.bb_min).
-    NOTE: This encodes a strong assumption of uniform data distribution within node.bb_min.
+    If a hr is specified, additionally weight by overlap ratio along dims (using node.hr_min).
+    NOTE: This encodes a strong assumption of uniform data distribution within node.hr_min.
     """
     nodes = list(nodes) # Need to have ordering.
     if len(nodes) == 1: return nodes[0].mean[dims]
     w = np.array([node.num_samples for node in nodes])
-    if bb is not None:
-        zero_bb_width = (bb[:,1] - bb[:,0]) == 0
+    if hr is not None:
+        zero_hr_width = (hr[:,1] - hr[:,0]) == 0
         r = []
         for node in nodes:
-            node_bb = node.bb_min[intersect_dims] # NOTE: Always uses bb_min, not bb_max.
-            inte = bb_intersect(node_bb, bb)
-            node_bb_width = node_bb[:,1] - node_bb[:,0]
-            node_bb_width_corr = node_bb_width.copy()
-            node_bb_width_corr[node_bb_width==0] = 1 # Prevent div/0 error.
-            ratios = (inte[:,1] - inte[:,0]) / node_bb_width_corr
-            ratios[node_bb_width==0] = 1 # Prevent zero ratio in same circumstance.
-            ratios[zero_bb_width] = 1 # Prevent zero ratio if bb is conditioned.
+            node_hr = node.hr_min[intersect_dims] # NOTE: Always uses hr_min, not hr_max.
+            inte = hr_intersect(node_hr, hr)
+            node_hr_width = node_hr[:,1] - node_hr[:,0]
+            node_hr_width_corr = node_hr_width.copy()
+            node_hr_width_corr[node_hr_width==0] = 1 # Prevent div/0 error.
+            ratios = (inte[:,1] - inte[:,0]) / node_hr_width_corr
+            ratios[node_hr_width==0] = 1 # Prevent zero ratio in same circumstance.
+            ratios[zero_hr_width] = 1 # Prevent zero ratio if hr is conditioned.
             r.append(np.prod(ratios))
         w = w * r
     return np.average([node.mean[dims] for node in nodes], axis=0, weights=w)

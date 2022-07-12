@@ -37,12 +37,12 @@ class Space:
     def __getitem__(self, name): return self.models[name]
     def __len__(self): return len(self.dim_names)
 
-    def subset(self, bb=None, subsample=None):
+    def subset(self, hr=None, subsample=None):
         """
         Retrieve a subset of the data by per-dimension filtering and/or random subsampling.
         """
         sorted_indices = self.all_sorted_indices
-        if bb is not None: sorted_indices = bb_filter_sorted_indices(self, sorted_indices, bb)
+        if hr is not None: sorted_indices = hr_filter_sorted_indices(self, sorted_indices, hr)
         return subsample_sorted_indices(sorted_indices, subsample)
 
     def tree_depth_first(self, name, split_dims, eval_dims, sorted_indices=None, 
@@ -83,11 +83,11 @@ class Space:
         """
         leaves = []
         for node in (d.values() if type(d) == dict else d):
-            # Get the maximal (and optionally minimal) bounding box in the correct form. 
-            bb_max, bb_min = self.listify(node["bb_max"], node["bb_min"] if "bb_min" in node else None,
+            # Get the maximal (and optionally minimal) hyperrectangle in the correct form.
+            hr_max, hr_min = self.listify(node["hr_max"], node["hr_min"] if "hr_min" in node else None,
                                   placeholder=[-np.inf,np.inf], duplicate_singletons=True)  
             # Add a new leaf.
-            leaves.append(Node(self, bb_min=bb_min, bb_max=bb_max, meta=node["meta"]))
+            leaves.append(Node(self, hr_min=hr_min, hr_max=hr_max, meta=node["meta"]))
         self.models[name] = Model(name, leaves)
         return self.models[name]
 

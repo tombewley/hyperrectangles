@@ -26,7 +26,7 @@ class Tree(Model):
         self.split_queue.sort(key=lambda x: x[1], reverse=True)
         self.split_cache, self.split_skipped = [], set()
 
-    def populate(self, sorted_indices="all", keep_bb_min=False): 
+    def populate(self, sorted_indices="all", keep_hr_min=False):
         """
         Populate all nodes in the tree with data from a sorted_indices array.
         Then recompute the split queue.
@@ -34,7 +34,7 @@ class Tree(Model):
         assert self.space.data.shape[0], "Space must have data."
         if sorted_indices == "all": sorted_indices = self.space.all_sorted_indices
         def _recurse(node, si):
-            node.populate(si, keep_bb_min)
+            node.populate(si, keep_hr_min)
             if node.split_dim is None: return
             if sorted_indices is None: left, right = None, None
             else:
@@ -134,7 +134,8 @@ class Tree(Model):
         """ 
         Find the deepest common ancestor node of a set of nodes.
         Return a subtree rooted at this node, pruned so that subtree.leaves = nodes.
-        """        
+        """
+        nodes = set(nodes)
         # First find the dca and create a subtree rooted here.
         def _recurse_find_dca(node):
             subtree = {node}
@@ -159,16 +160,16 @@ class Tree(Model):
                 replacement_right = _recurse_minimise(node.right)
                 if replacement_left != node.left: 
                     # Replace the left child, either with None or one of its children.
-                    bb_max_left = node.left.bb_max
+                    hr_max_left = node.left.hr_max
                     node.left = replacement_left 
-                    # Keep existing bounding box.
-                    if replacement_left is not None: node.left.bb_max = bb_max_left
+                    # Keep existing hyperrectangle.
+                    if replacement_left is not None: node.left.hr_max = hr_max_left
                 if replacement_right != node.right: 
                     # Replace the right child, either with None or one of its children.
-                    bb_max_right = node.right.bb_max
+                    hr_max_right = node.right.hr_max
                     node.right = replacement_right 
-                    # Keep existing bounding box.
-                    if replacement_right is not None: node.right.bb_max = bb_max_right
+                    # Keep existing hyperrectangle.
+                    if replacement_right is not None: node.right.hr_max = hr_max_right
                 if replacement is None:
                     # Determine how to replace this node.
                     if node.left is None:
@@ -250,7 +251,7 @@ class Tree(Model):
         """
         Prune to a specified node and return pruned leaf nums for reference.
         """
-        pruned_leaf_nums = {self.leaves.index(l) for l in self._get_nodes(source=node, leaves_only=True)}
+        pruned_leaf_nums = {self.leaves.index(l) for l in self._get_nodes(root=node, leaves_only=True)}
         node.split_dim, node.split_threshold, node.left, node.right, node.gains = None, None, None, None, {}
         # Update the list of leaves and split queue.
         self.leaves = self._get_nodes(leaves_only=True) 
@@ -299,7 +300,7 @@ class Tree(Model):
         _recurse(clone.root)
         return clone
 
-    def _get_nodes(self, source=None, leaves_only=False):
+    def _get_nodes(self, root=None, leaves_only=False):
         nodes = []
         def _recurse(node):
             if node is None: return
@@ -307,5 +308,5 @@ class Tree(Model):
                 if not leaves_only: nodes.append(node)
                 _recurse(node.left); _recurse(node.right)
             else: nodes.append(node)
-        _recurse(self.root if source is None else source)
+        _recurse(self.root if root is None else root)
         return nodes

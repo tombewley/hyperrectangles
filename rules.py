@@ -49,9 +49,9 @@ def diagram(tree, pred_dims=None, sf=3, verbose=False, decision_node_colour="gra
             if node.split_dim is None or verbose: 
                 # Leaf number.
                 if node.split_dim is None: graph_spec += f'({tree.leaves.index(node)}) '
-                # Mean, standard deviation, range (from bb_min)
+                # Mean, standard deviation, range (from hr_min)
                 if pred_dims:
-                    for d, (mean, std, rng) in enumerate(zip(node.mean[pred_dims], np.sqrt(np.diag(node.cov)[pred_dims]), node.bb_min[pred_dims])):
+                    for d, (mean, std, rng) in enumerate(zip(node.mean[pred_dims], np.sqrt(np.diag(node.cov)[pred_dims]), node.hr_min[pred_dims])):
                         graph_spec += f'{dim_names[pred_dims[d]]}: {round_sf(mean, sf)} (s={round_sf(std, sf)},r={round_sf(rng, sf)})\n'
                 # Num samples and impurity
                 ns = node.num_samples; graph_spec += f'n={ns}'
@@ -87,10 +87,10 @@ def diagram(tree, pred_dims=None, sf=3, verbose=False, decision_node_colour="gra
 
 def rule(node, maximise=True, sf=3): 
     """
-    Describe the bounding box for one node.
+    Describe the hyperrectangle for one node.
     """
     dim_names = node.space.dim_names; terms = []
-    for i, (mn, mx) in enumerate(node.bb_max if maximise else node.bb_min):
+    for i, (mn, mx) in enumerate(node.hr_max if maximise else node.hr_min):
         do_mn, do_mx = mn != -np.inf, mx != np.inf
         if do_mn and do_mx:
             terms.append(f"{round_sf(mn, sf)} =< {dim_names[i]} < {round_sf(mx, sf)}")

@@ -77,9 +77,9 @@ def show_lines(model, attributes, vis_dim=None, max_depth=np.inf, maximise=False
     colours = plt.rcParams['axes.prop_cycle'].by_key()['color']
     for i, attr in enumerate(attributes[:num_attributes]):
         for n, (node, value) in enumerate(zip(nodes, values[i])):
-            mn, mx = node.bb_max[vis_dim] if maximise else node.bb_min[vis_dim]
-            mn = max(mn, model.root.bb_min[vis_dim,0])
-            mx = min(mx, model.root.bb_min[vis_dim,1])
+            mn, mx = node.hr_max[vis_dim] if maximise else node.hr_min[vis_dim]
+            mn = max(mn, model.root.hr_min[vis_dim,0])
+            mx = min(mx, model.root.hr_min[vis_dim,1])
             ax.plot([mn,mx], [value, value], c=colours[i], label=(f'{attr[0]} of {attr[1]}' if n == 0 else None))
             if show_spread: # Visualise spread using a rectangle behind.
                 if attr[0] == 'mean': # Use standard deviation.
@@ -111,7 +111,7 @@ def show_rectangles(model, vis_dims=None, attribute=None,
     assert len(vis_dims) in {1,2}, "Must have |vis_dims| in {1,2}." # Will fail if not a tree.
     
     if vis_lims is not None: vis_lims = np.array(vis_lims) # Manually specify vis_lims.
-    else: vis_lims = model.root.bb_min[vis_dims] # Otherwise use bb_min of root (for tree).
+    else: vis_lims = model.root.hr_min[vis_dims] # Otherwise use hr_min of root (for tree).
     # Set up axes.
     ax = _ax_setup(ax, model, vis_dims, attribute=attribute, slice_dict=slice_dict)
     # Collect the list of nodes to show.
@@ -124,11 +124,11 @@ def show_rectangles(model, vis_dims=None, attribute=None,
         # TODO: This doesn't catch cases when nodes are non-overlapping despite vis_dims != split_dims.
         # if not np.array_equal(vis_dims, model.split_dims): assert not(attribute)  # Will fail if not a tree.            
         values = gather(nodes, attribute)
-        bbs = [bb_clip(node.bb_max[vis_dims] if maximise else node.bb_min[vis_dims],  vis_lims) for node in nodes]
+        hrs = [hr_clip(node.hr_max[vis_dims] if maximise else node.hr_min[vis_dims],  vis_lims) for node in nodes]
     except:
         # Otherwise, projection required.
         assert attribute[0] == "mean", "Can only project mean attributes."
-        assert maximise == False, "Can only project with bb_min" 
+        assert maximise == False, "Can only project with hr_min"
         projections = project(nodes, vis_dims, maximise=maximise, resolution=project_resolution)
         colour_dim = model.space.idxify(attribute[1])
         # Ensure slice_dict is factored into the weighting.
@@ -139,10 +139,10 @@ def show_rectangles(model, vis_dims=None, attribute=None,
                     weight_dims.append(d)
                     for i in range(len(projections)):
                         projections[i][0] = np.vstack((projections[i][0], s))        
-        values = [weighted_average(leaves, colour_dim, bb, weight_dims) for bb, leaves in projections]
-        bbs = [bb_clip(bb[:len(vis_dims)], vis_lims) for bb,_ in projections]
+        values = [weighted_average(leaves, colour_dim, hr, weight_dims) for hr, leaves in projections]
+        hrs = [hr_clip(hr[:len(vis_dims)], vis_lims) for hr,_ in projections]
     # Create rectangles.
-    lims_and_values_to_rectangles(ax, bbs, 
+    lims_and_values_to_rectangles(ax, hrs,
         values=values, cmap=_cmap(attribute), cmap_lims=cmap_lims, 
         fill_colour=fill_colour, edge_colour=edge_colour, cbar=cbar)
     return ax
@@ -152,7 +152,7 @@ def show_difference_rectangles(tree_a, tree_b, vis_dims, attribute, max_depth=np
     Given two trees with the same two split_dims, display rectangles coloured by the differences in the given attribute.
     TODO: Adapt for slicing. 
     """
-    if maximise: raise NotImplementedError("Need to clip bb_max intersection to *inner* of tree_a.root.bb_min and tree_b.root.bb_min")
+    if maximise: raise NotImplementedError("Need to clip hr_max intersection to *inner* of tree_a.root.hr_min and tree_b.root.hr_min")
     assert tree_a.space == tree_b.space
     vis_dims = tree_a.space.idxify(vis_dims)
     # Set up axes.
@@ -166,8 +166,8 @@ def show_difference_rectangles(tree_a, tree_b, vis_dims, attribute, max_depth=np
     intersections = []; diffs = []
     for node_a, value_a in zip(nodes_a, values_a[0]):
         for node_b, value_b in zip(nodes_b, values_b[0]):
-            inte = bb_intersect(node_a.bb_max[vis_dims] if maximise else node_a.bb_min[vis_dims], 
-                                node_b.bb_max[vis_dims] if maximise else node_b.bb_min[vis_dims])
+            inte = hr_intersect(node_a.hr_max[vis_dims] if maximise else node_a.hr_min[vis_dims],
+                                node_b.hr_max[vis_dims] if maximise else node_b.hr_min[vis_dims])
             if inte is not None: # Only store if intersection is non-empty.
                 intersections.append(inte)
                 diffs.append(value_a - value_b)
@@ -308,4 +308,4 @@ def _values_to_colours(values, cmap, cmap_lims, ax, cbar):
 def _cmap(attribute):
     if attribute is None: return None
     if attribute[0] in ('std','std_c','iqr'): return (mpl.cm.coolwarm, 'coolwarm') # Reverse for measures of spread.
-    else:                                     return (mpl.cm.Reds_r, 'Reds_r')                
+    else:                                     return (mpl.cm.Reds_r, 'Reds_r')
