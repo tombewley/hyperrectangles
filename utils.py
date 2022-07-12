@@ -184,21 +184,15 @@ def hr_intersect(hr_a, hr_b):
     if np.any(u-l < 0): return None # Return None if no overlap.
     return np.array([l, u]).T
 
+def hr_mbb(hr_a, hr_b):
     """
     Find minimum axis-aligned bounding box of two hyperrectangles.
     """
-
-def hr_clip(hr, clip):
-    """
-    Clip a hyperrectangle using another.
-    """
-    hr[:,0] = np.clip(hr[:,0], clip[:,0], clip[:,1])
-    hr[:,1] = np.clip(hr[:,1], clip[:,0], clip[:,1])
-    return hr
+    return np.array([np.minimum(hr_a[:,0], hr_b[:,0]), np.maximum(hr_a[:,1], hr_b[:,1])]).T
 
 def closest_point_in_hr(x, hr):
     """
-    Given a point x and hyperectangular hyperrectangle hr, find the point
+    Given a point x and hyperrectangle hr, find the point
     inside hr that is closest to x. This is the same point for all p-norms.
     """
     return np.array([hrd[0] if hrd[0] > xd else (

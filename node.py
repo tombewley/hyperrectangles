@@ -165,7 +165,7 @@ class Node:
         for attr in attributes: 
             d[attr] = self[attr] # Make use of __getitem__
             if clip is not None and attr == "hr_max":
-                d[attr] = hr_clip(d[attr], clip) # Clip hr_max to avoid infinite values
+                d[attr] = hr_intersect(d[attr], clip) # Clip hr_max to avoid infinite values
             try: d[attr] = d[attr].tolist() # Convert NumPy arrays to lists
             except: pass
         return d

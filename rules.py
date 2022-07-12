@@ -87,10 +87,13 @@ def diagram(tree, pred_dims=None, sf=3, verbose=False, decision_node_colour="gra
 
 def rule(node, maximise=True, sf=3): 
     """
-    Describe the hyperrectangle for one node.
+    Describe the hyperrectangle for a node.
     """
-    dim_names = node.space.dim_names; terms = []
-    for i, (mn, mx) in enumerate(node.hr_max if maximise else node.hr_min):
+    return _rule_inner(node.hr_max if maximise else node.hr_min, node.space.dim_names, sf)
+
+def _rule_inner(hr, dim_names, sf):
+    terms = []
+    for i, (mn, mx) in enumerate(hr):
         do_mn, do_mx = mn != -np.inf, mx != np.inf
         if do_mn and do_mx:
             terms.append(f"{round_sf(mn, sf)} =< {dim_names[i]} < {round_sf(mx, sf)}")
@@ -98,6 +101,19 @@ def rule(node, maximise=True, sf=3):
             if do_mn: terms.append(f"{dim_names[i]} >= {round_sf(mn, sf)}")
             if do_mx: terms.append(f"{dim_names[i]} < {round_sf(mx, sf)}")
     return " and ".join(terms)
+
+def difference_rule(node_a, node_b, maximise=True, sf=3):
+    """
+    Describe the difference between the hyperrectangles for two nodes.
+    TODO: Refactor
+    """
+    dn = node_a.space.dim_names
+    def _extend(hr):
+        hr[hr[:,0]==mbb[:,0],0], hr[hr[:,1]==mbb[:,1],1] = -np.inf, np.inf; return hr
+    hr_a = node_a.hr_max if maximise else node_a.hr_min
+    hr_b = node_b.hr_max if maximise else node_b.hr_min
+    mbb = hr_mbb(hr_a, hr_b) # MBB sets the context for the description
+    return f"While {_rule_inner(mbb, dn, sf)}, ({_rule_inner(_extend(hr_a), dn, sf)}) --> ({_rule_inner(_extend(hr_b), dn, sf)})"
 
 def counterfactual(x, options, delta_dims, sf=3): 
     """

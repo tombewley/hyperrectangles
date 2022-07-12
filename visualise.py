@@ -124,7 +124,7 @@ def show_rectangles(model, vis_dims=None, attribute=None,
         # TODO: This doesn't catch cases when nodes are non-overlapping despite vis_dims != split_dims.
         # if not np.array_equal(vis_dims, model.split_dims): assert not(attribute)  # Will fail if not a tree.            
         values = gather(nodes, attribute)
-        hrs = [hr_clip(node.hr_max[vis_dims] if maximise else node.hr_min[vis_dims],  vis_lims) for node in nodes]
+        hrs = [hr_intersect(node.hr_max[vis_dims] if maximise else node.hr_min[vis_dims],  vis_lims) for node in nodes]
     except:
         # Otherwise, projection required.
         assert attribute[0] == "mean", "Can only project mean attributes."
@@ -140,7 +140,7 @@ def show_rectangles(model, vis_dims=None, attribute=None,
                     for i in range(len(projections)):
                         projections[i][0] = np.vstack((projections[i][0], s))        
         values = [weighted_average(leaves, colour_dim, hr, weight_dims) for hr, leaves in projections]
-        hrs = [hr_clip(hr[:len(vis_dims)], vis_lims) for hr,_ in projections]
+        hrs = [hr_intersect(hr[:len(vis_dims)], vis_lims) for hr,_ in projections]
     # Create rectangles.
     lims_and_values_to_rectangles(ax, hrs,
         values=values, cmap=_cmap(attribute), cmap_lims=cmap_lims, 
