@@ -15,7 +15,7 @@ class Tree(Model):
         self._compute_split_queue()
 
     # Dunder/magic methods.
-    def __repr__(self): return f"{self.name}: tree model with {len(self.leaves)} leaves (split: {self.split_dims}, eval: {self.eval_dims})"
+    def __repr__(self): return f"{self.name}: tree model with {len(self)} leaves (split: {self.split_dims}, eval: {self.eval_dims})"
     def __sub__(self, other): return self.diff(other)
 
     def _compute_split_queue(self):
@@ -81,19 +81,24 @@ class Tree(Model):
                     return left | right | ({node} if path else {})
         return _recurse(self.root)
 
-    def get_leaf_nums(self, X):
+    def get_leaf_nums(self, X, one_hot=False):
         """
         Accelerated method for propagating a multidimensional array of samples
         through the tree and getting the unique leaf num for each.
+        Optionally use a one-hot encoding.
         """
         # First flatten along all but the final dimension to ease indexing.
         shape = X.shape; X_flat = X.reshape(-1, shape[-1])
-        leaf_nums = np.full(shape[:-1], -1)
+        if one_hot:
+            leaf_nums = np.full((*shape[:-1], len(self)), -1)
+            oh = np.identity(len(self), dtype=int)
+        else: leaf_nums = np.full(shape[:-1], -1)
         def _recurse(node, indices):
             if len(indices) == 0: return
             if node.split_dim is None:
                 # At a leaf, store the leaf num for all remaining indices.
-                leaf_nums[np.unravel_index(indices, shape[:-1])] = self.leaves.index(node)
+                x = self.leaves.index(node)
+                leaf_nums[np.unravel_index(indices, shape[:-1])] = oh[x] if one_hot else x
             else:
                 # At an internal node, split the indices based on the split threshold.
                 left = X_flat[indices, node.split_dim] < node.split_threshold
