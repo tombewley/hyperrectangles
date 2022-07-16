@@ -18,6 +18,13 @@ class Tree(Model):
     def __repr__(self): return f"{self.name}: tree model with {len(self)} leaves (split: {self.split_dims}, eval: {self.eval_dims})"
     def __sub__(self, other): return self.diff(other)
 
+    @property
+    def siblings(self):
+        """
+        Return the indices of all sibling pairs in self.leaves.
+        """
+        return [(x, x+1) for x in range(len(self.leaves)-1) if self.leaves[x].parent is self.leaves[x+1].parent]
+
     def _compute_split_queue(self):
         """
         Compute split queue for best-first growth from scratch, and empty split cache.
