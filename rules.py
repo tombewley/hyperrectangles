@@ -1,8 +1,12 @@
 from .utils import *
+from .visualise import _values_to_colours
 import numpy as np
 import pydot 
 import io
 import matplotlib.image as mpimg
+from matplotlib.cm import Reds_r
+from matplotlib.colors import rgb2hex
+
 
 def rules(tree, pred_dims=None, sf=3, dims_as_indices=True, out_name=None): 
     """
@@ -34,35 +38,43 @@ def rules(tree, pred_dims=None, sf=3, dims_as_indices=True, out_name=None):
             for l in lines: f.write(l+"\n")
     return "\n".join(lines)
 
-def diagram(tree, pred_dims=None, sf=3, verbose=False, decision_node_colour="gray", out_name=None, out_as="svg", size=None):
+def diagram(tree, pred_dims=None, colour_dim=None, sf=3, verbose_level=0, decision_node_colour="gray", out_name=None, out_as="svg", size=None):
     """
     Represent tree as a pydot diagram with pred_dims and the consequent.
     """
-    if pred_dims: pred_dims = tree.space.idxify(pred_dims)
+    if pred_dims is not None:
+        pred_dims = tree.space.idxify(pred_dims)
+    if colour_dim is not None:
+        leaf_colours = _values_to_colours(tree.gather(("mean", tree.space.idxify(colour_dim))), (Reds_r, "Reds_r"), None, None, False)
     dim_names = tree.space.dim_names; graph_spec = 'digraph Tree {node [shape=box];'
     def _recurse(node, graph_spec, n=0, n_parent=0, dir_label=None):
         if node is None: graph_spec += f'{n} [label="None"];'
-        else:   
-            if node.split_dim is not None:
+        else:
+            if node.split_dim is None:
+                leaf_num = tree.leaves.index(node)
+                c = rgb2hex(leaf_colours[leaf_num]) if colour_dim is not None else "white"
+            else:
+                c = decision_node_colour
                 split = f'{dim_names[node.split_dim]} < {round_sf(node.split_threshold, sf)}'
-            graph_spec += f'{n} [label="'
-            if node.split_dim is None or verbose: 
-                # Leaf number.
-                if node.split_dim is None: graph_spec += f'({tree.leaves.index(node)}) '
+            graph_spec += f'{n} [style=filled, fontname="sans-serif", fillcolor="{c}", label="'
+            if node.split_dim is None or verbose_level > 0:
+                if node.split_dim is None: graph_spec += f'({leaf_num}) '
                 # Mean, standard deviation, range (from hr_min)
                 if pred_dims:
                     for d, (mean, std, rng) in enumerate(zip(node.mean[pred_dims], np.sqrt(np.diag(node.cov)[pred_dims]), node.hr_min[pred_dims])):
-                        graph_spec += f'{dim_names[pred_dims[d]]}: {round_sf(mean, sf)} (s={round_sf(std, sf)},r={round_sf(rng, sf)})\n'
+                        graph_spec += f'{dim_names[pred_dims[d]]}: {round_sf(mean, sf)}'
+                        if verbose_level > 1 : graph_spec += f'(s={round_sf(std, sf)},r={round_sf(rng, sf)})'
+                        graph_spec += '\n'
                 # Num samples and impurity
                 ns = node.num_samples; graph_spec += f'n={ns}'
-                if pred_dims: 
+                if pred_dims and verbose_level > 1:
                     imp = f"{np.dot(node.var_sum[pred_dims], tree.space.global_var_scale[pred_dims]):.2E}"
                     graph_spec += f'\nimpurity: {imp}'
                 if node.split_dim is not None:
-                    graph_spec += f'\n-----\nsplit: {split}", style=filled, fillcolor="{decision_node_colour}' # Decision node (verbose)
+                    graph_spec += f'\n-----\nsplit: {split}' # Decision node (verbose_level > 0)
             else: 
-                graph_spec += f'{split}", style=filled, fillcolor="{decision_node_colour}' # Decision node (non-verbose)
-            graph_spec += '", fontname = "sans-serif"];'
+                graph_spec += f'{split}' # Decision node (verbose_level == 0)
+            graph_spec += '"];'
             n_here = n
             if n_here > 0: # Make edge from parent.
                 graph_spec += f'{n_parent} -> {n} [label="{dir_label}"];' 
