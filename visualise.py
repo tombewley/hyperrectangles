@@ -190,18 +190,19 @@ def lims_and_values_to_rectangles(ax, lims, offsets=None, values=[None], cmap=No
             art3d.pathpatch_2d_to_3d(r, z=offsets[i], zdir="z")
     ax.autoscale_view()
 
-def show_split_quality(node, sharey=True):
+def show_split_quality(node, figsize=(12,8), sharey=True):
     """
     Line plots of split quality values for node, across all split_dims.
     NOTE: Must have previously been stored by setting store_all_qual=True during splitting.
     """
     num_split_dims = len(node.all_qual)
     num_rows = int(np.floor(num_split_dims**.5)); num_cols = int(np.ceil(num_split_dims / num_rows))
-    _, axes = plt.subplots(num_rows, num_cols, figsize=(12,8), sharey=sharey)
+    _, axes = plt.subplots(num_rows, num_cols, figsize=figsize, sharey=sharey)
     axes = axes.flatten()
     for i, (d, q) in enumerate(node.all_qual.items()):
+        non_nan = ~np.isnan(q)
         axes[i].set_title(node.space.dim_names[d])
-        axes[i].plot(node.all_split_thresholds[d], q, c="k")
+        axes[i].plot(node.all_split_thresholds[d][non_nan], q[non_nan], c="k")
     for ax in axes[i+1:]: ax.axis("off")
     return axes
 

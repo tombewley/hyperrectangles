@@ -194,15 +194,25 @@ class Node:
         if gains is not None: self.gains["immediate"] = gains
         return True
 
-    def _find_greedy_split(self, split_finder, split_dims, eval_dims, min_samples_leaf, store_all_qual=False):
+    def _find_greedy_split(self, split_finder, split_dims, eval_dims, min_samples_leaf, entropy, store_all_qual):
         """
-        Find the overall greediest split given split_dims and eval_dims.
+        Find all greedy splits for split_dims, using split_finder and eval_dims,
+        then choose a single split_dim using a softmax or hard argmax decision.
         """
         # Only attempt to split if there are enough samples.
         if len(self) >= 2*min_samples_leaf:
             splits, gains = split_finder(self, split_dims, eval_dims, min_samples_leaf, store_all_qual)
             if splits:
-                # Sort splits by quality and choose the single best.
-                split_dim, split_index, qual = sorted(splits, key=lambda x: x[2], reverse=True)[0]        
+                if entropy > 0.:
+                    # Choose split dimension using softmax with entropy coefficient.
+                    q = np.array([x[2] for x in splits])
+                    q_max = q.max()
+                    q_norm = (q / (q_max if q_max > 0. else 1.)) - 1. # Prevents overflow
+                    exp_q = np.exp(q_norm / entropy)
+                    p = exp_q / exp_q.sum()
+                    split_dim, split_index, qual = splits[np.random.choice(range(len(splits)), p=p)]
+                else:
+                    # Sort splits by quality and choose the single best.
+                    split_dim, split_index, qual = sorted(splits, key=lambda x: x[2], reverse=True)[0]
                 return split_dim, split_index, qual, gains
         return None, None, -np.inf, None 

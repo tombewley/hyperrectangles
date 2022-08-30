@@ -113,23 +113,23 @@ class Tree(Model):
         _recurse(self.root, np.arange(len(X_flat)))
         return leaf_nums
 
-    def _queue_to_cache(self, min_samples_leaf, store_all_qual=False):
+    def _queue_to_cache(self, min_samples_leaf, entropy=0., store_all_qual=False):
         """
         Find the greedy split for the first leaf in the split queue and add to the split cache.
         """
         node, _ = self.split_queue.pop(0) 
-        self.split_cache.append((node, node._find_greedy_split(self.split_finder, self.split_dims, self.eval_dims, min_samples_leaf, store_all_qual)))
+        self.split_cache.append((node, node._find_greedy_split(self.split_finder, self.split_dims, self.eval_dims, min_samples_leaf, entropy, store_all_qual)))
         self.split_cache.sort(key=lambda x: x[1][2], reverse=True)
         assert set(self.leaves) == set([n for n, _ in self.split_queue]) | set([n for n, _ in self.split_cache]) | self.split_skipped
 
-    def split_next_best(self, min_samples_leaf, num_from_queue=np.inf, store_all_qual=False): 
+    def split_next_best(self, min_samples_leaf, num_from_queue=np.inf, entropy=0., store_all_qual=False):
         """
         Split the next leaf.
         The num_from_queue argument facilitates a tradeoff between heuristically splitting based on var_sum (set to 1)
         and exhaustively trying every leaf (set to inf).
         """
         for _ in range(min(num_from_queue, len(self.split_queue))):
-            self._queue_to_cache(min_samples_leaf, store_all_qual) # Transfer the first leaf in the split queue to the cache.
+            self._queue_to_cache(min_samples_leaf, entropy, store_all_qual) # Transfer the first leaf in the split queue to the cache.
         node, (split_dim, split_index, qual, gains) = self.split_cache.pop(0)
         if qual > 0: 
             node._do_split(split_dim, split_index=split_index, gains=gains)
