@@ -23,7 +23,6 @@ class Model:
         """
         Populate all leaves in the model with data from a sorted_indices array.
         """
-        assert self.space.data.shape[0], "Space must have data."
         if sorted_indices is "all": sorted_indices = self.space.all_sorted_indices
         for leaf in self.leaves:
             leaf.populate(hr_filter_sorted_indices(self.space, sorted_indices, leaf.hr_max),

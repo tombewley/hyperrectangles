@@ -38,7 +38,6 @@ class Tree(Model):
         Populate all nodes in the tree with data from a sorted_indices array.
         Then recompute the split queue.
         """
-        assert self.space.data.shape[0], "Space must have data."
         if sorted_indices == "all": sorted_indices = self.space.all_sorted_indices
         def _recurse(node, si):
             node.populate(si, keep_hr_min)

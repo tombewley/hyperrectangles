@@ -11,7 +11,6 @@ class Space:
     """
     def __init__(self, dim_names, data=None):
         self.dim_names = list(dim_names)
-        if data is None: data = np.empty((0, len(dim_names))) 
         self.data = data
         # Empty dictionary for storing models.
         self.models = {}; self.fsms = {}
@@ -21,6 +20,7 @@ class Space:
     def data(self): return self._data 
     @data.setter
     def data(self, data):
+        if data is None: data = np.empty((0, len(self)))
         assert data.shape[1] == len(self)
         self._data = data
         # Sort data along each dimension up front.
