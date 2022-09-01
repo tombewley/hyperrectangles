@@ -56,11 +56,11 @@ class Node:
             if not keep_hr_min: self.hr_min = np.array([np.min(X, axis=0), np.max(X, axis=0)]).T
             if self.num_samples > 1:
                 self.cov = np.cov(X, rowvar=False, ddof=0) # ddof=0 overrides bias correction.                
+            else: self.cov = np.zeros((num_dims, num_dims))
         else: 
             self.mean = np.full(num_dims, np.nan)
+            self.cov = np.full((num_dims, num_dims), np.nan)
             if not keep_hr_min: self.hr_min = np.full((num_dims, 2), np.nan)
-        try: self.cov
-        except: self.cov = np.zeros((num_dims, num_dims))
         self.cov_sum = self.cov * self.num_samples
         self.var_sum = np.diag(self.cov_sum)      
 
