@@ -100,7 +100,7 @@ def show_leaf_numbers(model, vis_dims, ax=None, fontsize=6):
     return ax
 
 def show_rectangles(model, vis_dims=None, attribute=None, 
-                    slice_dict=None, max_depth=np.inf, maximise=False, project_resolution=None,
+                    slice_dict=None, max_depth=np.inf, maximise=True, project_resolution=None,
                     vis_lims=None, cmap_lims=None, fill_colour=None, edge_colour=None, ax=None, cbar=True):
     """
     Compute the rectangular projections of nodes from model onto vis_dims, and colour according to attribute.
@@ -308,5 +308,5 @@ def _values_to_colours(values, cmap, cmap_lims, ax, cbar):
 
 def _cmap(attribute):
     if attribute is None: return None
-    if attribute[0] in ('std','std_c','iqr'): return (mpl.cm.coolwarm, 'coolwarm') # Reverse for measures of spread.
-    else:                                     return (mpl.cm.Reds_r, 'Reds_r')
+    if attribute[0] in ('std','std_c','iqr'): return (mpl.cm.coolwarm,   'coolwarm') # Reverse for measures of spread.
+    else:                                     return (mpl.cm.coolwarm_r, 'coolwarm_r')
