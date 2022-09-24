@@ -12,8 +12,8 @@ class Node:
         self.space, self.parent = space, parent # "Back-link" to the space and parent node.
         self.hr_max = np.array(hr_max if hr_max is not None else # If a maximal hyperrectangle has been provided, use that.
                       [[-np.inf, np.inf] for _ in self.space.dim_names]) # Otherwise, hr_max is infinite.
-        # These attributes are defined if and when the node is split.
-        self.split_dim, self.split_threshold, self.left, self.right, self.gains = None, None, None, None, {} 
+        # Split attributes are defined if and when the node is split.
+        self.unsplit()
         # This dictionary can be used to store miscellaneous meta information about this node.
         self.meta = {} if meta is None else meta
         # Populate with samples if provided.
@@ -41,6 +41,10 @@ class Node:
         if dims: num_dims = len(dims)
         else: dims = None; num_dims = len(self.space)
         return self.space.data[self.sorted_indices[:,0][:,None], self.space.idxify(dims)].reshape(-1,num_dims)
+
+    def unsplit(self):
+        """Remove any split information from this node."""
+        self.split_dim, self.split_threshold, self.left, self.right, self.gains = None, None, None, None, {}
     
     def populate(self, sorted_indices, keep_hr_min):
         """
