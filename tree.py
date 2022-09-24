@@ -194,7 +194,10 @@ class Tree(Model):
         from copy import deepcopy
         dca_copy, nodes_copy, eval_dims_copy = deepcopy((dca, nodes, self.eval_dims))
         subtree_root = _recurse_minimise(dca_copy)
-        subtree_split_dims = sorted(list(subtree_split_dims - {None})) 
+        # Remove parent from subtree root, and split information from subtree leaves.
+        subtree_root.parent = None
+        for leaf in nodes_copy: leaf.unsplit()
+        subtree_split_dims = sorted(list(subtree_split_dims - {None}))
         return Tree(name, subtree_root, subtree_split_dims, eval_dims_copy)
 
     def diff(self, other, resolution=0):
