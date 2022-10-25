@@ -90,12 +90,12 @@ def show_lines(model, attributes, vis_dim=None, max_depth=np.inf, maximise=False
     ax.legend()
     return ax
 
-def show_leaf_numbers(model, vis_dims, ax=None, fontsize=6):
+def show_leaf_numbers(model, vis_dims, ax=None, fontsize=6, add=0):
     assert len(vis_dims) in {1,2}
     vis_dims = model.space.idxify(vis_dims)
     if ax is None: _, ax = plt.subplots()
-    for n, l in enumerate(model.leaves): 
-        ax.text(l.mean[vis_dims[0]], l.mean[vis_dims[1]] if len(vis_dims) > 1 else 0.5, n, ha="center", va="center", fontsize=fontsize)
+    for n, l in enumerate(model.leaves):
+        ax.text(l.mean[vis_dims[0]], l.mean[vis_dims[1]] if len(vis_dims) > 1 else 0.5, n+add, ha="center", va="center", fontsize=fontsize)
     return ax
 
 def show_rectangles(model, vis_dims=None, attribute=None, 

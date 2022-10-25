@@ -7,12 +7,12 @@ class Tree(Model):
     """
     Class for a tree, which inherits from model and introduces a few tree-specific methods.
     """
-    def __init__(self, name, root, split_dims, eval_dims, split_finder=variance_based_split_finder):
+    def __init__(self, name, root, split_dims=None, eval_dims=None, split_finder=variance_based_split_finder):
         Model.__init__(self, name, leaves=None) # Don't explicitly pass leaves because they're under root.
         self.root, self.space, self.split_dims, self.eval_dims = root, root.space, split_dims, eval_dims
         self.leaves = self._get_nodes(leaves_only=True) # Collect the list of leaves.
         self.split_finder = split_finder
-        self._compute_split_queue()
+        if split_dims is not None: self._compute_split_queue()
 
     # Dunder/magic methods.
     def __repr__(self): return f"{self.name}: tree model with {len(self)} leaves (split: {self.split_dims}, eval: {self.eval_dims})"

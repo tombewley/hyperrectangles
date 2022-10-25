@@ -8,7 +8,7 @@ from matplotlib.cm import coolwarm_r
 from matplotlib.colors import rgb2hex
 
 
-def rules(tree, pred_dims=None, sf=3, dims_as_indices=True, out_name=None): 
+def rules(tree, pred_dims=None, sf=3, dims_as_indices=False, out_name=None):
     """
     Represent tree as a rule set with pred_dims as the consequent. Formatted as valid Python code.
     """
@@ -39,7 +39,7 @@ def rules(tree, pred_dims=None, sf=3, dims_as_indices=True, out_name=None):
     return "\n".join(lines)
 
 def diagram(tree, pred_dims=None, colour_dim=None, cmap_lims=None,
-            show_decision_node_preds=False, show_num_samples=False, show_std_rng=False, show_impurity=False,
+            show_decision_node_preds=False, show_num_samples=False, show_std_rng=False, show_impurity=False, add_to_leaf_nums=0,
             sf=3, out_as="svg", out_name=None, size=None):
     """
     Represent tree as a pydot diagram with pred_dims and the consequent.
@@ -56,7 +56,7 @@ def diagram(tree, pred_dims=None, colour_dim=None, cmap_lims=None,
         else:
             if node.split_dim is None:
                 c = colour(node) if colour_dim is not None else "white"
-                leaf_num = tree.leaves.index(node)+1
+                leaf_num = tree.leaves.index(node)+add_to_leaf_nums
             else:
                 c = colour(node) if (colour_dim is not None and show_decision_node_preds) else "gray"
                 split = f'{tree.space.dim_names[node.split_dim]}≥{round_sf(node.split_threshold, sf)}?'
