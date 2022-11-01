@@ -141,26 +141,32 @@ class Tree(Model):
             return node
         self.split_skipped.add(node)
 
-    def dca_subtree(self, name, nodes): 
-        """ 
+    def find_dca(self, nodes):
+        """
         Find the deepest common ancestor node of a set of nodes.
-        Return a subtree rooted at this node, pruned so that subtree.leaves = nodes.
         """
         nodes = set(nodes)
-        # First find the dca and create a subtree rooted here.
-        def _recurse_find_dca(node):
+        def _recurse(node=self.root):
             subtree = {node}
             found = nodes == subtree
             if not found and node.split_dim is not None:
-                found_left, left = _recurse_find_dca(node.left)
+                found_left, left = _recurse(node.left)
                 if found_left: return found_left, left # Already found in left subtree.
-                found_right, right = _recurse_find_dca(node.right)
+                found_right, right = _recurse(node.right)
                 if found_right: return found_right, right # Already found in right subtree.
                 subtree = subtree | left | right
             if not (nodes - subtree): found = True # Found if all nodes are in subtree.
             return found, (node if found else subtree)
-        found, dca = _recurse_find_dca(self.root)
-        if not found: return False 
+        found, dca = _recurse()
+        return dca if found else None
+
+    def dca_subtree(self, name, nodes):
+        """
+        Return a subtree rooted at the dca for a set of nodes, pruned so that subtree.leaves = nodes.
+        """
+        # First find the dca.
+        dca = self.find_dca(nodes)
+        if dca is None: return None
         # Next iterate through the subtree rooted at dca and iteratively replace nodes with one child,
         # using that child itself. This is not quite the same as pruning.
         subtree_split_dims = set()
