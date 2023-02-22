@@ -50,7 +50,7 @@ def diagram(tree, pred_dims=None, colour_dim=None, cmap_lims=None,
         leaf_means = tree.gather(("mean", colour_dim))
         if cmap_lims is None: cmap_lims = (min(leaf_means), max(leaf_means))
         colour = lambda node: rgb2hex(_values_to_colours([node.mean[colour_dim]], (coolwarm_r, "coolwarm_r"), cmap_lims, None, False)[0])
-    graph_spec = 'digraph Tree {nodesep=0.2; ranksep=0.2; node [shape=box];'
+    graph_spec = 'digraph Tree {nodesep=0.2; ranksep=0.25; node [shape=box, penwidth=1.107];'
     def _recurse(node, graph_spec, n=0, n_parent=0, dir_label=None):
         if node is None: graph_spec += f'{n} [label="None"];'
         else:
@@ -58,11 +58,11 @@ def diagram(tree, pred_dims=None, colour_dim=None, cmap_lims=None,
                 c = colour(node) if colour_dim is not None else "white"
                 leaf_num = tree.leaves.index(node)+add_to_leaf_nums
             else:
-                c = colour(node) if (colour_dim is not None and show_decision_node_preds) else "gray"
-                split = f'{tree.space.dim_names[node.split_dim]}≥{round_sf(node.split_threshold, sf)}?'
-            graph_spec += f'{n} [style=filled, fontname="sans-serif", fillcolor="{c}", label="'
+                c = colour(node) if (colour_dim is not None and show_decision_node_preds) else "white"
+                split = f'{tree.space.dim_names[node.split_dim]}≥{round_sf(node.split_threshold, sf)}'
+            graph_spec += f'{n} [style=filled, fontname="ETBembo", fontsize=16.5, height=0, width=0, fillcolor="{c}", label="'
             if node.split_dim is None or show_decision_node_preds:
-                if node.split_dim is None: graph_spec += f'({leaf_num}) '
+                if node.split_dim is None: graph_spec += f'{leaf_num} '
                 if pred_dims:
                     for d, (mean, std, rng) in enumerate(zip(node.mean[pred_dims], np.sqrt(np.diag(node.cov)[pred_dims]), node.hr_min[pred_dims])):
                         graph_spec += f'{tree.space.dim_names[pred_dims[d]]}={round_sf(mean, sf)}'
@@ -78,11 +78,13 @@ def diagram(tree, pred_dims=None, colour_dim=None, cmap_lims=None,
             graph_spec += '"];'
             n_here = n
             if n_here > 0: # Make edge from parent.
-                graph_spec += f'{n_parent} -> {n} [fontname="sans-serif", label=" {dir_label} "];' # Spaces add padding
+                graph_spec += f'{n_parent} -> {n} [penwidth=1.107, arrowsize=1.107'
+                if dir_label is not None: graph_spec += 'fontname="ETBembo", fontsize=16.5, label=" {dir_label} "' # Spaces add padding
+                graph_spec += '];'
             n += 1
             if node.split_dim is not None: # Recurse to children.
-                graph_spec, n = _recurse(node.left, graph_spec, n, n_here, "No")
-                graph_spec, n = _recurse(node.right, graph_spec, n, n_here, "Yes")
+                graph_spec, n = _recurse(node.left, graph_spec, n, n_here, dir_label=None)
+                graph_spec, n = _recurse(node.right, graph_spec, n, n_here, dir_label=None)
         return graph_spec, n
     # Create and save pydot graph.    
     graph_spec, _ = _recurse(tree.root, graph_spec)
