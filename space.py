@@ -99,7 +99,7 @@ class Space:
             for v in d.values(): v["split_dim"] = redim[v["split_dim"]]
         def _recurse(node, n): 
             if n in d:
-                if not node._do_manual_split(d[n]["split_dim"], split_threshold=d[n]["split_threshold"]):
+                if not node._do_split(d[n]["split_dim"], split_threshold=d[n]["split_threshold"]):
                     raise ValueError(f"Invalid split threshold for node {n}: \"{d[n]}\".")
                 _recurse(node.left, d[n]["left"])
                 _recurse(node.right, d[n]["right"])
