@@ -258,17 +258,20 @@ def project(nodes, dims, maximise=False, resolution=None):
 # ===============================
 # OTHER
 
-def round_sf(X, sf):
+def round_sf_or_dp(X, sf=None, dp=None):
     """
-    Round a float to the given number of significant figures.
+    Round a float to the given number of significant figures or decimal places.
     """
-    if sf is None: return X
-    try: 
+    if sf is None and dp is None: return X
+    try:
         # For single value.
-        return np.format_float_positional(X, precision=sf, unique=False, fractional=False, trim='k') 
+        if sf is not None:
+            return np.format_float_positional(X, precision=sf, unique=False, fractional=False, trim='k')
+        else:
+            return np.format_float_positional(X, precision=dp)
     except: 
         # For iterable.
-        return f"[{','.join(round_sf(x, sf) for x in X)}]" 
+        return f"[{','.join(round_sf_or_dp(x, sf) for x in X)}]"
 
 def gather(nodes, *attributes, transpose=False):
     """
