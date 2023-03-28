@@ -121,7 +121,7 @@ class Space:
         def _recurse(node, n):
             if lines[n][0] == "#": return _recurse(node, n + 1) 
             elif lines[n][:2] == "if":
-                d, o, t = lines[n][3:-1].split(" ")
+                d, o, t = lines[n][3:lines[n].find(":")].split(" ")
                 assert o in ("<", ">=")
                 try: split_dim = int(d.split("[")[1][:-1]) # If index specified.
                 except: split_dim = self.dim_names.index(d) # If dim_name specified.
@@ -129,11 +129,11 @@ class Space:
                 if not node._do_split(split_dim, split_threshold=float(t)):
                     raise ValueError(f"Invalid split threshold at line {n}: \"{lines[n]}\".")
                 n = _recurse(node.left if o == "<" else node.right, n + 1)
-                assert lines[n] == "else:"
+                assert lines[n][:lines[n].find(":")] == "else"
                 n = _recurse(node.right if o == "<" else node.left, n + 1)
             elif lines[n][:6] == "return":
                 # NOTE: Float-convertible return values are stored in node.meta["return"].
-                try:    node.meta["return"] = float(lines[n][6:])
+                try:    node.meta["return"] = float(lines[n][7:].split(" ")[0])
                 except: node.meta["return"] = None
                 n += 1
             else: raise ValueError(f"Parse error at line {n}: \"{lines[n]}\".")
