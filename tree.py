@@ -278,6 +278,9 @@ class Tree(Model):
         self._compute_split_queue()
         return pruned_leaf_nums
 
+    def feature_importance(self):
+        return self.root.feature_importance(self.split_dims, self.eval_dims)
+
     def backprop_gains(self):
         """
         Propagate gains for each splitting feature back through the tree, 

@@ -63,7 +63,7 @@ class Node:
             else: self.cov = np.zeros((num_dims, num_dims))
         else: 
             self.mean = np.full(num_dims, np.nan)
-            self.cov = np.full((num_dims, num_dims), np.nan)
+            self.cov = np.full((num_dims, num_dims), 0.)
             if not keep_hr_min: self.hr_min = np.full((num_dims, 2), np.nan)
         self.cov_sum = self.cov * self.num_samples
         self.var_sum = np.diag(self.cov_sum)      
@@ -159,6 +159,19 @@ class Node:
         # Return components scaled back by standard deviation, and explained variance ratio.
         # pca.components_ has dimensionality (n_components, len(self.space)), so each component is a row vector.
         return (pca.components_ * std), pca.explained_variance_ratio_
+
+    def feature_importance(self, split_dims, eval_dims):
+        """
+        Compute local feature importance (var_sum reduction) for all (split_dim, eval_dim) pairs.
+        """
+        if self.split_dim is None:
+            return np.zeros((len(split_dims), len(eval_dims)))
+        else:
+            fi = self.left.feature_importance(split_dims, eval_dims) + \
+                 self.right.feature_importance(split_dims, eval_dims)
+            fi[split_dims.index(self.split_dim)] += \
+                self.var_sum[eval_dims] - (self.left.var_sum[eval_dims] + self.right.var_sum[eval_dims])
+            return fi
 
     def json(self, *attributes, clip=None): 
         """
