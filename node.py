@@ -196,7 +196,7 @@ class Node:
             if not(self.hr_max[split_dim][0] <= split_threshold <= self.hr_max[split_dim][1]): return False
             self.split_threshold = split_threshold
             data = self.space.data[self.sorted_indices[:,split_dim],split_dim]
-            split_index = bisect.bisect(data, self.split_threshold)
+            split_index = bisect.bisect_left(data, self.split_threshold)
         left, right = split_sorted_indices(self.sorted_indices, split_dim, split_index)
         if split_threshold is None: # Index -> threshold
             self.split_threshold = (self.space.data[left[-1,split_dim],split_dim] + self.space.data[right[0,split_dim],split_dim]) / 2

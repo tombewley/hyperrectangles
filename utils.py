@@ -271,7 +271,7 @@ def round_sf_or_dp(X, sf=None, dp=None):
             return np.format_float_positional(X, precision=dp)
     except: 
         # For iterable.
-        return f"[{','.join(round_sf_or_dp(x, sf) for x in X)}]"
+        return f"[{','.join(str(round_sf_or_dp(x, sf)) for x in X)}]"
 
 def gather(nodes, *attributes, transpose=False):
     """

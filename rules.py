@@ -49,7 +49,7 @@ def diagram(tree, pred_dims=None, colour_dim=None, cmap_lims=None,
         colour_dim = tree.space.idxify(colour_dim)
         leaf_means = tree.gather(("mean", colour_dim))
         if cmap_lims is None: cmap_lims = (min(leaf_means), max(leaf_means))
-        colour = lambda node: rgb2hex(_values_to_colours([node.mean[colour_dim]], (coolwarm_r, "coolwarm_r"), cmap_lims, None, False)[0])
+        colour = lambda node: rgb2hex(_values_to_colours([node.mean[colour_dim]], "coolwarm_r", cmap_lims, None, False)[0])
     graph_spec = 'digraph Tree {nodesep=0.1; ranksep=0.25; node [shape=box, penwidth=1.107];'
     def _recurse(node, graph_spec, n=0, n_parent=0, dir_label=None):
         if node is None: graph_spec += f'{n} [label="None"];'

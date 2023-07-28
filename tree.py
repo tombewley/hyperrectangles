@@ -44,7 +44,7 @@ class Tree(Model):
             if node.split_dim is None: return
             if sorted_indices is None: left, right = None, None
             else:
-                split_index = bisect.bisect(self.space.data[si[:,node.split_dim], node.split_dim], node.split_threshold)
+                split_index = bisect.bisect_left(self.space.data[si[:,node.split_dim], node.split_dim], node.split_threshold)
                 left, right = split_sorted_indices(si, node.split_dim, split_index)
             _recurse(node.left, left); _recurse(node.right, right)
         _recurse(self.root, sorted_indices)
